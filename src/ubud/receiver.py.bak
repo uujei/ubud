@@ -8,7 +8,7 @@ import websocket
 import zmq
 
 from . import market as MARKET
-from .market.common import ts_to_strdt
+from .common import ts_to_strdt
 
 logger = logging.getLogger(__name__)
 

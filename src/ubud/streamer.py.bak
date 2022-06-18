@@ -1,0 +1,243 @@
+import json
+import logging
+import time
+from datetime import datetime
+
+import paho.mqtt.client as mqtt
+from typing import Callable
+import rel
+import parse
+import websocket
+from functools import partial
+
+from . import streamer as root_module
+from .const import MARKET, SYMBOL, CURRENCY, QUOTE, ORDERTYPE, TICKER, TRADE, ORDERBOOK, ts_to_strdt
+
+logger = logging.getLogger(__name__)
+
+
+################################################################
+# STATICS
+################################################################
+AVAILABLE_BROKERS = ["mqtt"]
+
+# MQTT TOPICS
+MQTT_DEFAULT_PORT = 1883
+MQTT_TOPICS = [MARKET, SYMBOL, CURRENCY, QUOTE, ORDERTYPE]
+
+
+################################################################
+# Helpers
+################################################################
+
+
+################################################################
+# Websocket Common Callbacks
+################################################################
+# default message handler
+def on_message(ws, msg, handler=None):
+    _received_dt = ts_to_strdt(time(), _float=True)
+    logger.info(f"[WEBSOCKET] {_received_dt}")
+    logger.debug(f"[WEBSOCKET] Message: {json.loads(msg)}")
+    if handler is not None:
+        handler(ws, msg)
+    return True
+
+
+def on_error(ws, err):
+    logger.error(f"[ERROR] {err}")
+
+
+def on_close(ws, close_status_code, close_msg):
+    logger.error(f"[CLOSED] Websocket closed with code {close_status_code} and message {close_msg}!")
+
+
+################################################################
+# MQTT Common Callbacks
+################################################################
+# mqtt common callback / on_connect
+def on_connect(client, userdata, flag, rc):
+    if rc != 0:
+        logger.error(f"Bad Connection Returned with CODE {rc}")
+        raise
+    logger.info(f"[MQTT] Connected, STATUS_CODE={rc}")
+
+
+# mqtt common callback / on_disconnect
+def on_disconnect(client, userdata, flag, rc=0):
+    logger.info(f"[MQTT] Disconnected, STATUS_CODE={rc}")
+
+
+# mqtt common callback / on_publish
+def on_publish(client, userdata, mid):
+    logger.info(f"[MQTT] M.ID {mid} is Published")
+
+
+################################################################
+# Message Parser
+################################################################
+def to_debug_message(topic, msg: dict):
+    if topic is None:
+        topic = "notopic"
+    return {"topic": topic, "payload": json.dumps(msg)}
+
+
+def to_mqtt_message(topic, msg: dict):
+    return {
+        "topic": f"{topic}/" + "/".join([msg[_TOPIC] for _TOPIC in MQTT_TOPICS]),
+        "payload": json.dumps({"ts_recv": time.time(), **{k: v for k, v in msg.items() if k not in MQTT_TOPICS}}),
+    }
+
+
+################################################################
+# Universial Connector (Websocket to Broker)
+################################################################
+class WebsocketStreamer:
+    def __init__(
+        self,
+        market: str,
+        quote: str,
+        symbols: list,
+        currency: str,
+        broker: str = None,
+        broker_opts: dict = None,
+        topic: str = None,
+        client_id: str = None,
+        trace=False,
+    ):
+
+        # [CORRECT ARGS]
+        # market
+        assert market is not None, "[ERROR] 'market' is required!"
+        market = market.lower()
+
+        # load market module and helpers
+        market_module = getattr(root_module, market)
+        concat_symbol_currency = getattr(market_module, "concat_symbol_currency")
+
+        # symbols
+        assert symbols is not None, "[ERROR] symbols are required!"
+        symbols = symbols.split(",") if isinstance(symbols, str) and "," in symbols else symbols
+        symbols = symbols if isinstance(symbols, (list, tuple)) else [symbols]
+        symbols = sorted([concat_symbol_currency(s, currency) for s in symbols])
+
+        # broker
+        broker = broker if broker is None else broker.lower()
+        if broker is not None:
+            _valid = [broker.startswith(b) for b in AVAILABLE_BROKERS]
+            assert any(_valid), f"[ERROR] Broker '{broker}' is not available!"
+            if broker.startswith("mqtt"):
+                broker_conf = broker.replace("mqtt://", "")
+                broker_conf = broker_conf if ":" in broker_conf else f"{broker_conf}:{MQTT_DEFAULT_PORT}"
+                broker_conf = parse.parse("{host}:{port}", broker_conf).named
+                broker = "mqtt"
+                parser = to_mqtt_message
+        else:
+            broker_conf = None
+            parser = to_debug_message
+
+        # client id
+        if client_id is None:
+            client_id = f"nonanme-{topic}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+        # [PROPERTIES]
+        self.market = market
+        self.quote = quote
+        self.symbols = symbols
+        self.ws_url = market_module.URL
+        self.ws_parser = parser
+        self.broker = broker
+        self.broker_conf = broker_conf
+        self.broker_opts = broker_opts
+        if self.broker_opts is not None:
+            self.broker_conf.update(self.broker_opts)
+        self.topic = topic if topic is not None else "notopic"
+        self.client_id = client_id
+        self.trace = trace
+
+        # [CONNECTORS]
+        Register = getattr(market_module, "Register")
+        register = Register(self.quote, self.symbols)
+        self.ws = self.get_websocket(
+            url=self.ws_url,
+            on_open=register,
+        )
+        self.publisher = self.get_publisher(
+            broker=self.broker,
+            broker_conf=broker_conf,
+            client_id=self.client_id,
+        )
+
+        message_handler = getattr(market_module, f"{quote}_handler")
+        self.message_handler = partial(message_handler, publisher=self.publisher)
+
+        # logging
+        _msg = f"MARKET: {self.market}, TYPE: {self.quote}, SYMBOLS: {', '.join(sorted(self.symbols))}, BROKER: {self.broker}, TOPIC: {self.topic}"
+        logger.info(f"[UBUD] Websocket URL: {self.ws_url}")
+        logger.info(f"[UBUD] Client ID: {self.client_id}")
+
+    def start(self):
+        self.ws.run_forever()
+
+    def publish(self, messages):
+        if self.broker == "mqtt":
+            for m in messages:
+                # parsing
+                try:
+                    _p = self.parser(self.topic, m)
+                except Exception as ex:
+                    logger.warn(f"[MQTT] ParseError - {messages}")
+                # logging
+                logger.debug(f"[MQTT] Message: {_p}")
+                # publishing
+                try:
+                    self.publisher.publish(**_p)
+                except Exception as ex:
+                    logger.warn(f"[MQTT] ParseError - {messages}")
+
+    @staticmethod
+    def get_websocket(
+        url: str,
+        on_open: Callable,
+        on_message: Callable = on_message,
+        on_error: Callable = on_error,
+        on_close: Callable = on_close,
+        trace: bool = False,
+    ):
+        # start trace
+        if trace:
+            websocket.enableTrace(True)
+
+        # create websocket
+        ws = websocket.WebSocketApp(
+            url=url,
+            on_open=on_open,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+        )
+
+        return ws
+
+    @staticmethod
+    def get_publisher(
+        broker: str,
+        broker_conf: dict,
+        client_id: str = None,
+    ):
+        if broker is None:
+            return
+
+        # MQTT
+        if broker == "mqtt":
+            publisher = mqtt.Client(client_id=client_id)
+            publisher.on_connect = on_connect
+            publisher.on_disconnect = on_disconnect
+            publisher.on_publish = on_publish
+            publisher.connect(**broker_conf)
+            return publisher
+
+
+if __name__ == "__main__":
+    streamer = WebsocketStreamer(market="upbit", quote="orderbook", symbols="BTC", currency="KRW")
+    streamer.start()

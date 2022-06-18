@@ -1,0 +1,1 @@
+{"editor.formatOnSave": true, "python.formatting.provider": "black", "python.formatting.blackArgs": ["--line-length", "119"], "python.linting.enabled": true, "python.linting.flake8Enabled": true, "python.linting.flake8Args": ["--ignore=E302,F401,F402,E501,F741,F841", "--verbose"], "autoDocstring.generateDocstringOnEnter": true, "autoDocstring.docstringFormat": "google"}
