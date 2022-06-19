@@ -30,12 +30,12 @@ def get_broker_conf(broker):
     broker = broker.lower()
     if broker.startswith("mqtt"):
         if broker == "mqtt":
-            return broker, {}
+            return "mqtt", {}
         _broker = broker.replace("mqtt://", "").split(":")
         if len(_broker) == 1:
-            return broker, {"url": _broker[0]}
+            return "mqtt", {"url": _broker[0]}
         if len(_broker) == 2:
-            return broker, {"url": _broker[0], "port": _broker[1]}
+            return "mqtt", {"url": _broker[0], "port": int(_broker[1])}
     raise ReferenceError(f"Broker {broker} is Not Available!")
 
 

@@ -12,10 +12,11 @@ from influxdb_client.client.write_api import ASYNCHRONOUS
 logger = logging.getLogger(__name__)
 
 _compile = "/".join(["{topic}/{api_category}", *[f"{{{t}}}" for t in MQTT_TOPICS]])
+print(_compile)
 Parser = parse.compile(_compile)
 BUCKET = "api_category"
 MEASUREMENT = QUOTE
-TAGS = ["topic", "market", "currency", "orderType"]
+TAGS = ["topic", "symbol", "market", "currency", "orderType"]
 DATETIME_PRIORITY = [TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV]
 
 
