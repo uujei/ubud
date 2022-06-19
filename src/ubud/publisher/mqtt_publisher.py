@@ -4,7 +4,22 @@ import logging
 from typing import Callable
 import json
 from time import time
-from ..const import MARKET, SYMBOL, CURRENCY, QUOTE, ORDERTYPE, TICKER, TRADE, ORDERBOOK, ts_to_strdt
+from ..const import (
+    MARKET,
+    SYMBOL,
+    CURRENCY,
+    QUOTE,
+    ORDERTYPE,
+    TICKER,
+    TRADE,
+    ORDERBOOK,
+    ts_to_strdt,
+    TS_MARKET,
+    TS_WS_SEND,
+    TS_WS_RECV,
+    TS_MQ_SEND,
+    TS_MQ_RECV,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -13,9 +28,9 @@ logger = logging.getLogger(__name__)
 # SETTINGS
 ################################################################
 # MQTT TOPICS
-MQTT_TOPICS = [MARKET, SYMBOL, CURRENCY, QUOTE, ORDERTYPE]
+MQTT_TOPICS = [QUOTE, MARKET, SYMBOL, CURRENCY, ORDERTYPE]
 
-
+# default on_connect
 def on_connect(client, userdata, flag, rc):
     if rc != 0:
         logger.error(f"Bad Connection Returned with CODE {rc}")
@@ -23,10 +38,12 @@ def on_connect(client, userdata, flag, rc):
     logger.info(f"[MQTT] Connected, STATUS_CODE={rc}")
 
 
+# default on_disconnect
 def on_disconnect(client, userdata, flag, rc=0):
     logger.info(f"[MQTT] Disconnected, STATUS_CODE={rc}")
 
 
+# default on_publish
 def on_publish(client, userdata, mid):
     logger.info(f"[MQTT] M.ID {mid} is Published")
 
@@ -37,7 +54,12 @@ def on_publish(client, userdata, mid):
 def parser(topic, msg: dict):
     return {
         "topic": f"{topic}/" + "/".join([msg[_TOPIC] for _TOPIC in MQTT_TOPICS]),
-        "payload": json.dumps({"ts_recv": time(), **{k: v for k, v in msg.items() if k not in MQTT_TOPICS}}),
+        "payload": json.dumps(
+            {
+                **{k: v for k, v in msg.items() if k not in MQTT_TOPICS},
+                TS_MQ_SEND: time(),
+            }
+        ),
     }
 
 

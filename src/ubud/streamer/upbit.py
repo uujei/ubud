@@ -20,11 +20,13 @@ from ..const import (
     QUANTITY,
     QUOTE,
     SYMBOL,
-    SYMBOLS,
     TICKER,
     TRADE,
     TRADE_DATETIME,
     TRADE_SID,
+    TS_WS_SEND,
+    TS_WS_RECV,
+    TS_MARKET,
     ts_to_strdt,
 )
 from ..publisher.mqtt_publisher import Publisher
@@ -35,7 +37,8 @@ logger = logging.getLogger(__name__)
 ################################################################
 # Market Conf
 ################################################################
-THIS_MARKET = "UPBIT"
+THIS_MARKET = "upbit"
+API_CATEGORY = "quotation"
 URL = "wss://api.upbit.com/websocket/v1"
 QUOTE_PARAMS = {
     TICKER: "ticker",
@@ -88,12 +91,13 @@ async def _request(ws, params):
 # Market Parsers
 ################################################################
 # TRADE
-async def trade_parser(body, handler=None, ts_recv=None):
+async def trade_parser(body, handler=None, ts_ws_recv=None):
     # load body
     try:
         symbol_currency = _split_symbol(body["cd"])
+        ts_ws_send = int(body["tms"]) / 1e3
         msg = {
-            DATETIME: ts_to_strdt(int(body["tms"]) / 1e3),
+            DATETIME: ts_to_strdt(ts_ws_send),
             MARKET: THIS_MARKET,
             QUOTE: TRADE,
             **symbol_currency,
@@ -102,6 +106,8 @@ async def trade_parser(body, handler=None, ts_recv=None):
             ORDERTYPE: body["ab"].lower(),
             PRICE: body["tp"],
             QUANTITY: body["tv"],
+            TS_WS_SEND: ts_ws_send,
+            TS_WS_RECV: ts_ws_recv,
         }
         logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
         if handler is not None:
@@ -111,13 +117,14 @@ async def trade_parser(body, handler=None, ts_recv=None):
 
 
 # ORDERBOOK
-async def orderbook_parser(body, handler=None, ts_recv=None):
+async def orderbook_parser(body, handler=None, ts_ws_recv=None):
     # parse and pub
     if "obu" in body.keys():
         # base message
         symbol_currency = _split_symbol(body["cd"])
+        ts_ws_send = int(body["tms"]) / 1e3
         base_msg = {
-            DATETIME: ts_to_strdt(int(body["tms"]) / 1e3),
+            DATETIME: ts_to_strdt(ts_ws_send),
             MARKET: THIS_MARKET,
             QUOTE: ORDERBOOK,
             **symbol_currency,
@@ -125,11 +132,25 @@ async def orderbook_parser(body, handler=None, ts_recv=None):
         # parse and pub
         try:
             for r in body["obu"]:
-                msg = {**base_msg, ORDERTYPE: ASK, PRICE: r["ap"], QUANTITY: r["as"]}
+                msg = {
+                    **base_msg,
+                    ORDERTYPE: ASK,
+                    PRICE: r["ap"],
+                    QUANTITY: r["as"],
+                    TS_WS_SEND: ts_ws_send,
+                    TS_WS_RECV: ts_ws_recv,
+                }
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
                 if handler is not None:
                     handler(msg)
-                msg = {**base_msg, ORDERTYPE: BID, PRICE: r["bp"], QUANTITY: r["bs"]}
+                msg = {
+                    **base_msg,
+                    ORDERTYPE: BID,
+                    PRICE: r["bp"],
+                    QUANTITY: r["bs"],
+                    TS_WS_SEND: ts_ws_send,
+                    TS_WS_RECV: ts_ws_recv,
+                }
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
                 if handler is not None:
                     handler(msg)

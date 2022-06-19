@@ -36,14 +36,12 @@ logger = logging.getLogger(__name__)
 # Market Conf
 ################################################################
 THIS_MARKET = "BITHUMB"
+API_CATEGORY = "quotation"
 URL = "wss://pubwss.bithumb.com/pub/ws"
 QUOTE_PARAMS = {
     TICKER: "ticker",
     TRADE: "transaction",
     ORDERBOOK: "orderbookdepth",
-}
-SYMBOL_PARAMS = {
-    SYMBOLS: "symbols",
 }
 
 ################################################################
@@ -96,13 +94,13 @@ async def _request(ws, params):
 # Market Parsers
 ################################################################
 # [TRADE]
-async def trade_parser(body, handler=None, ts_recv=None):
+async def trade_parser(body, handler=None, ts_ws_recv=None):
     # parse and pub
     if "content" in body.keys():
         try:
             content = body["content"]
             base_msg = {
-                DATETIME: ts_recv,
+                DATETIME: ts_ws_recv,
                 MARKET: THIS_MARKET,
                 QUOTE: TRADE,
             }
@@ -126,7 +124,7 @@ async def trade_parser(body, handler=None, ts_recv=None):
 
 
 # [ORDERBOOK]
-async def orderbook_parser(body, handler=None, ts_recv=None):
+async def orderbook_parser(body, handler=None, ts_ws_recv=None):
     # parse and pub
     if "content" in body.keys():
         try:
@@ -209,14 +207,14 @@ class BaseStreamer:
         if recv is None:
             return
         recv = json.loads(recv)
-        ts_recv = ts_to_strdt(time(), _float=True)
-        logger.info(f"[WEBSOCKET] Receive Message from ORDERBOOK @ {ts_recv}")
+        ts_ws_recv = time()
+        logger.info(f"[WEBSOCKET] Receive Message from ORDERBOOK @ {ts_to_strdt(ts_ws_recv, _float=True)}")
         logger.debug(f"[WEBSOCKET] Body: {recv}")
         if parser is not None:
             try:
-                _ = await parser(body=recv, handler=handler, ts_recv=ts_recv)
+                _ = await parser(body=recv, handler=handler, ts_ws_recv=ts_ws_recv)
             except Exception as ex:
-                logger.warn(f"[WEBSOCKET] Error Parsing {ts_recv}: {ex}")
+                logger.warn(f"[WEBSOCKET] Error Parsing {ts_ws_recv}: {ex}")
 
 
 ################################################################

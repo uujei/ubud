@@ -43,9 +43,18 @@ TRADE_SID = "trade_sid"
 TOTAL_QUANTITY = "total_qty"
 BOOK_COUNT = "book_count"
 
+# MQ TIMESTAMP
+TS_MARKET = "ts_market"
+TS_WS_SEND = "ts_ws_send"
+TS_WS_RECV = "ts_ws_recv"
+TS_MQ_SEND = "ts_mq_send"
+TS_MQ_RECV = "ts_mq_recv"
+
+# DATETIME FORMAT
+DT_FMT = "%Y-%m-%dT%H:%M:%S%z"
+DT_FMT_FLOAT = "%Y-%m-%dT%H:%M:%S.%f%z"
+
 # timestamp to string datetime (w/ ISO format)
 def ts_to_strdt(ts, _float=False):
-    DTFMT = "%Y-%m-%dT%H:%M:%S%z"
-    if _float:
-        DTFMT = DTFMT.replace("%z", ".%f%z")
-    return datetime.fromtimestamp(ts).astimezone(KST).strftime(DTFMT)
+    _dt_fmt = DT_FMT_FLOAT if _float else DT_FMT
+    return datetime.fromtimestamp(ts).astimezone(KST).strftime(_dt_fmt)

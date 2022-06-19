@@ -2,9 +2,12 @@ import click
 from .streamer import upbit, bithumb
 from .publisher import mqtt_publisher
 from .test_consumer import start_consume as _start_consume
-
+from .connector.mqtt_source_influxdb_sink import start_mqtt_consumer as _start_mqtt_consumer
 import logging
 from click_loglevel import LogLevel
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
+from clutter.aws import get_secrets
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -47,11 +50,11 @@ def ubud():
 @click.option("-s", "--symbols", required=True, multiple=True)
 @click.option("-c", "--currency", default="KRW")
 @click.option("-b", "--broker", default=None)
-@click.option("-t", "--topic", default="ubud")
+@click.option("-t", "--topic", default="ubud/quotation")
 @click.option("--client-id")
 @click.option("--log-level", default=logging.INFO, type=LogLevel())
 @click.option("--trace", is_flag=True)
-def start_stream(market, quote, symbols, currency, broker, topic, client_id, log_level, trace):
+def start_quotation_stream(market, quote, symbols, currency, broker, topic, client_id, log_level, trace):
 
     # set log level
     logging.basicConfig(
@@ -84,7 +87,7 @@ def start_stream(market, quote, symbols, currency, broker, topic, client_id, log
 @click.option("-b", "--broker", default=None)
 @click.option("-t", "--topic", default="ubud")
 @click.option("--log-level", default=logging.INFO, type=LogLevel())
-def start_consume(broker, topic, log_level):
+def start_test_consume(broker, topic, log_level):
 
     # set log level
     logging.basicConfig(
@@ -94,3 +97,36 @@ def start_consume(broker, topic, log_level):
 
     # start stream
     _start_consume(broker=broker, topic=topic)
+
+
+@ubud.command()
+@click.option("-u", "--src-url", default="localhost")
+@click.option("-p", "--src-port", default=1883)
+@click.option("-t", "--src-topic", default="ubud/#")
+@click.option("-b", "--sink-bucket", default="dev")
+@click.option("-s", "--sink-secret", default="theone")
+@click.option("--log-level", default=logging.INFO, type=LogLevel())
+def start_mqtt_to_influxdb(src_topic, src_url, src_port, sink_bucket, sink_secret, log_level):
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s:%(levelname)s:%(message)s",
+    )
+
+    # influxdb
+    if sink_secret is not None:
+        secret = get_secrets(sink_secret)
+        influxdb_conf = {"url": secret["iu"], "token": secret["it"], "org": secret["io"]}
+        sink_client = InfluxDBClient(**influxdb_conf)
+    else:
+        sink_client = None
+
+    logger.info(src_url)
+    logger.info(src_topic)
+    _start_mqtt_consumer(
+        topic=src_topic,
+        url=src_url,
+        port=src_port,
+        sink_client=sink_client,
+        sink_bucket=sink_bucket,
+    )
