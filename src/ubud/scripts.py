@@ -1,7 +1,7 @@
 import click
 from .streamer import upbit, bithumb
-from .publisher import mqtt_publisher
-from .test_consumer import start_consume as _start_consume
+from .streamer import publisher_mqtt
+from .connector.mqtt_source_console_log import start_mqtt_to_console as _start_mqtt_to_console
 from .connector.mqtt_source_influxdb_sink import start_mqtt_consumer as _start_mqtt_consumer
 import logging
 from click_loglevel import LogLevel
@@ -20,7 +20,7 @@ STREAMER = {
 }
 
 PUBLISHER = {
-    "mqtt": mqtt_publisher.Publisher,
+    "mqtt": publisher_mqtt.Publisher,
 }
 
 # Helper
@@ -39,11 +39,17 @@ def get_broker_conf(broker):
     raise ReferenceError(f"Broker {broker} is Not Available!")
 
 
+################################################################
+# GROUP UBUD
+################################################################
 @click.group()
 def ubud():
     pass
 
 
+################################################################
+# QUOTATION STREAM
+################################################################
 @ubud.command()
 @click.option("-m", "--market", required=True)
 @click.option("-q", "--quote", required=True)
@@ -83,11 +89,14 @@ def start_quotation_stream(market, quote, symbols, currency, broker, topic, clie
     streamer.start()
 
 
+################################################################
+# CONSOLE LOG CONNECTOR
+################################################################
 @ubud.command()
 @click.option("-b", "--broker", default=None)
 @click.option("-t", "--topic", default="ubud")
 @click.option("--log-level", default=logging.INFO, type=LogLevel())
-def start_test_consume(broker, topic, log_level):
+def start_mqtt_to_console(broker, topic, log_level):
 
     # set log level
     logging.basicConfig(
@@ -96,9 +105,12 @@ def start_test_consume(broker, topic, log_level):
     )
 
     # start stream
-    _start_consume(broker=broker, topic=topic)
+    _start_mqtt_to_console(broker=broker, topic=topic)
 
 
+################################################################
+# INFLUXDB CONSUMER
+################################################################
 @ubud.command()
 @click.option("-u", "--src-url", default="localhost")
 @click.option("-p", "--src-port", default=1883)

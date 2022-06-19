@@ -3,7 +3,7 @@ import logging
 from time import time
 import json
 from datetime import datetime
-from .const import TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV
+from ..const import TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def on_message(client, userdata, msg):
 ################################################################
 # MAIN FUNCTION
 ################################################################
-def start_consume(broker, topic):
+def start_mqtt_to_console(broker, topic):
     client = mqtt.Client()
     client.on_connect = on_connect
     client.on_disconnect = on_connect

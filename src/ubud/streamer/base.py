@@ -27,7 +27,7 @@ from ..const import (
     TRADE_DATETIME,
     ts_to_strdt,
 )
-from ..publisher.mqtt_publisher import Publisher
+from .publisher_mqtt import Publisher
 
 logger = logging.getLogger(__name__)
 
