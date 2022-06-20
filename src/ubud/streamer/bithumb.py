@@ -19,7 +19,7 @@ from ..const import (
     ORDERTYPE,
     PRICE,
     QUANTITY,
-    QUOTE,
+    QUOTE, 
     SYMBOL,
     TICKER,
     TRADE,

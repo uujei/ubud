@@ -68,6 +68,9 @@ def start_quotation_stream(market, quote, symbols, currency, broker, topic, clie
         format="%(asctime)s:%(levelname)s:%(message)s",
     )
 
+    # correct symbols
+    symbols = [s for ss in symbols for s in ss.split(",")]
+
     # set publisher
     broker, broker_conf = get_broker_conf(broker)
     if broker is not None:

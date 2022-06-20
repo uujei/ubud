@@ -10,3 +10,4 @@ COPY . ${WORKDIR}
 
 RUN python -m pip install . 
 
+CMD ["ubud"]
