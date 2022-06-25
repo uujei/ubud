@@ -7,7 +7,9 @@ from clutter.aws import get_secrets
 from ..const import TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV, QUOTE
 from ..streamer.publisher_mqtt import MQTT_TOPICS
 from influxdb_client import InfluxDBClient, Point
-from influxdb_client.client.write_api import ASYNCHRONOUS
+from influxdb_client.client.write_api import ASYNCHRONOUS, SYNCHRONOUS
+
+snap1 = []
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +26,13 @@ DATETIME_PRIORITY = [TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV]
 # Transfrom
 ################################################################
 class Handler:
-    def __init__(self, sink_client=None, sink_bucket=None):
+    def __init__(self, url, token, org, bucket):
         # set sink_client
-        self.client = sink_client
+        self.client = InfluxDBClient(url=url, token=token, org=org, verify_ssl=False)
+        self.writer = self.client.write_api(write_options=ASYNCHRONOUS)
+        self.bucket = bucket
 
-        self.bucket = sink_bucket
-
-    def __call__(self, client, userdata, msg):
+    def __call__(self, client, userdata, msg, props=None):
         topic = msg.topic
         payload = json.loads(msg.payload)
         logger.info(f"[InfluxDB] MQTT Message Received: topic: {topic}, payload: {payload}")
@@ -48,7 +50,6 @@ class Handler:
         # common
         parsed = Parser.parse(topic).named
 
-        points = []
         for i, (k, v) in enumerate(payload.items()):
             if isinstance(v, str):
                 continue
@@ -57,19 +58,19 @@ class Handler:
             for _TAG in TAGS:
                 p.tag(_TAG, parsed[_TAG])
             p.field(k, v)
-            # p.time(influxdb_ts)
-            points += [p]
+
+            # # [NOTE] time을 줄 경우 overwrite 발생 ~ time 해상도가 "분"
+            # try:
+            #     self.writer.write_points(self.bucket, record=p)
+            # except Exception as ex:
+            #     logger.warn(f"[InfluxDB] Write Exception {ex}")
+
             logger.debug(f"[InfluxDB] Point: {p.to_line_protocol()}")
             del p
 
-        # batch write
-        if self.client is not None:
-            with self.client.write_api(write_options=ASYNCHRONOUS) as writer:
-                writer.write(self.bucket, self.client.org, points)
-
 
 # mqtt common callback / on_connect
-def on_connect(client, userdata, flag, rc):
+def on_connect(client, userdata, flag, rc, props=None):
     if rc != 0:
         logger.error(f"Bad Connection Returned with CODE {rc}")
         raise
@@ -86,23 +87,24 @@ def start_mqtt_consumer(
     topic: str,
     url: str = "localhost",
     port: int = 1883,
-    sink_client=None,
-    sink_bucket=None,
+    handler=None,
 ):
-
     # mqtt
     client = mqtt.Client()
     client.on_connect = on_connect
     client.on_disconnect = on_connect
-    client.on_message = Handler(
-        sink_client=sink_client,
-        sink_bucket=sink_bucket,
-    )
+    client.on_message = handler
+
+    # connect and subscribe
     client.connect(url, port, 60)
     client.subscribe(topic)
 
     # start
-    client.loop_forever()
+    try:
+        client.loop_forever()
+    except Exception as ex:
+        logger.error(ex)
+        raise
 
 
 ################################################################
@@ -116,6 +118,6 @@ if __name__ == "__main__":
     # influxdb
     secret = get_secrets("theone")
     influxdb_conf = {"url": secret["iu"], "token": secret["it"], "org": secret["io"]}
-    sink_client = InfluxDBClient(**influxdb_conf)
+    handler = Handler(**influxdb_conf, bucket="dev")
 
-    start_mqtt_consumer(topic="ubud", sink_client=sink_client, sink_bucket="dev")
+    start_mqtt_consumer(topic="ubud", handler=handler)

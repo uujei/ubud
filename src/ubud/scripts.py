@@ -2,7 +2,7 @@ import click
 from .streamer import upbit, bithumb
 from .streamer import publisher_mqtt
 from .connector.mqtt_source_console_log import start_mqtt_to_console as _start_mqtt_to_console
-from .connector.mqtt_source_influxdb_sink import start_mqtt_consumer as _start_mqtt_consumer
+from .connector.mqtt_source_influxdb_sink import Handler, start_mqtt_consumer as _start_mqtt_consumer
 import logging
 from click_loglevel import LogLevel
 from influxdb_client import InfluxDBClient, Point
@@ -120,8 +120,9 @@ def start_mqtt_to_console(broker, topic, log_level):
 @click.option("-t", "--src-topic", default="ubud/#")
 @click.option("-b", "--sink-bucket", default="dev")
 @click.option("-s", "--sink-secret", default="theone")
+@click.option("--sink-url", default=None)
 @click.option("--log-level", default=logging.INFO, type=LogLevel())
-def start_mqtt_to_influxdb(src_topic, src_url, src_port, sink_bucket, sink_secret, log_level):
+def start_mqtt_to_influxdb(src_topic, src_url, src_port, sink_bucket, sink_secret, sink_url, log_level):
     # set log level
     logging.basicConfig(
         level=log_level,
@@ -132,16 +133,18 @@ def start_mqtt_to_influxdb(src_topic, src_url, src_port, sink_bucket, sink_secre
     if sink_secret is not None:
         secret = get_secrets(sink_secret)
         influxdb_conf = {"url": secret["iu"], "token": secret["it"], "org": secret["io"]}
-        sink_client = InfluxDBClient(**influxdb_conf)
+        if sink_url is not None:
+            influxdb_conf.update({"url": sink_url})
+        handler = Handler(**influxdb_conf, bucket=sink_bucket)
     else:
-        sink_client = None
+        handler = None
 
     logger.info(src_url)
     logger.info(src_topic)
+
     _start_mqtt_consumer(
         topic=src_topic,
         url=src_url,
         port=src_port,
-        sink_client=sink_client,
-        sink_bucket=sink_bucket,
+        handler=handler,
     )
