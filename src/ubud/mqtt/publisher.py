@@ -1,24 +1,27 @@
-import paho.mqtt.client as mqtt
-from paho.mqtt.client import MQTTv311, MQTTv5
-import logging
-from typing import Callable
 import json
+import logging
+import traceback
 from time import time
+from typing import Callable
+
+import paho.mqtt.client as mqtt
+from paho.mqtt.client import MQTTv5, MQTTv311
+
 from ..const import (
-    MARKET,
-    SYMBOL,
     CURRENCY,
-    QUOTE,
+    MARKET,
+    ORDERBOOK,
     ORDERTYPE,
+    QUOTE,
+    SYMBOL,
     TICKER,
     TRADE,
-    ORDERBOOK,
-    ts_to_strdt,
     TS_MARKET,
-    TS_WS_SEND,
-    TS_WS_RECV,
-    TS_MQ_SEND,
     TS_MQ_RECV,
+    TS_MQ_SEND,
+    TS_WS_RECV,
+    TS_WS_SEND,
+    ts_to_strdt,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,9 +54,7 @@ def on_publish(client, userdata, mid):
 ################################################################
 # Message Parser
 ################################################################
-def parser(root_topic, msg: dict):
-    # parent_topic = f"{root_topic}/" + "/".join([msg.pop(_TOPIC) for _TOPIC in MQTT_TOPICS])
-    # return [{"topic": f"{parent_topic}/{k}", "payload": v} for k, v in msg.items()]
+def parser(root_topic: str, msg: dict):
     return {
         "topic": f"{root_topic}/" + "/".join([msg.pop(_TOPIC) for _TOPIC in MQTT_TOPICS]),
         "payload": json.dumps({**{k: v for k, v in msg.items()}, TS_MQ_SEND: time()}),
@@ -71,35 +72,38 @@ class Publisher:
         root_topic: str = "ubud",
         qos: int = 0,
         retain: bool = False,
-        keepalive: int = 60,
         client_id: str = None,
+        keepalive: int = 60,
         protocol: int = MQTTv5,
         transport: int = "tcp",
         reconnect_on_failure: bool = True,
     ):
         # properties
-        self.url = url
-        self.port = port
         self.root_topic = root_topic
         self.qos = qos
         self.retain = retain
-        self.keepalive = keepalive
-        self.client_id = client_id
-        self.protocol = protocol
-        self.transport = transport
-        self.reconnect_on_failure = reconnect_on_failure
 
         # client
-        self.client = mqtt.Client(client_id=self.client_id, reconnect_on_failure=self.reconnect_on_failure)
+        self.client = mqtt.Client(
+            client_id=client_id,
+            protocol=protocol,
+            transport=transport,
+            reconnect_on_failure=reconnect_on_failure,
+        )
         self.client.on_connect = on_connect
         self.client.on_publish = on_publish
         self.client.on_disconnect = on_disconnect
-        self.client.connect(host=self.url, port=self.port, keepalive=self.keepalive)
+        self.client.connect(
+            host=url,
+            port=port,
+            keepalive=keepalive,
+        )
 
     def __call__(self, msg):
         try:
             outputs = parser(self.root_topic, msg)
             logger.debug(f"[MQTT] Publish {outputs}")
-            _ = [self.client.publish(*o) for o in outputs]
+            self.client.publish(**outputs, qos=self.qos, retain=self.retain)
         except Exception as ex:
             logger.warn(f"[MQTT] Publish Failed - {ex}")
+            traceback.print_exc()

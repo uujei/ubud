@@ -18,7 +18,7 @@ logger.addHandler(log_handler)
 
 DEFAULT_LOG_FORMAT = "%(asctime)s:%(levelname)s:%(message)s"
 
-STREAMER = {
+WEBSOCKET = {
     "upbit": UpbitWebsocket,
     "bithumb": BithumbWebsocket,
 }
@@ -77,6 +77,7 @@ def start_websocket_stream(market, quote, symbols, currency, broker, topic, clie
 
     # set publisher
     broker, broker_conf = get_broker_conf(broker)
+    logger.info(f"[UBUD] Start Websocket Stream - Broker {broker} ({broker_conf})")
     if broker is not None:
         handler = PUBLISHER[broker](**broker_conf, root_topic=topic, client_id=client_id)
     else:
@@ -85,7 +86,7 @@ def start_websocket_stream(market, quote, symbols, currency, broker, topic, clie
     # set streamer
     market = market.lower()
     symbols = symbols if isinstance(symbols, (tuple, list)) else [s.strip() for s in symbols.split(",")]
-    streamer = STREAMER[market](
+    streamer = WEBSOCKET[market](
         quote=quote,
         symbols=symbols,
         currency=currency,
