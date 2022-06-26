@@ -5,17 +5,16 @@ import time
 from urllib.parse import urlencode, urljoin
 import requests
 import logging
-import uuid
 
 logger = logging.getLogger(__name__)
 
 PATH_PARAMS_PUBLIC = ["order_currency", "payment_currency"]
 
 
-class UpbitApi:
+class BithumbApi:
     @staticmethod
     def _gen_api_nonce():
-        return str(uuid.uuid4())
+        return str(int(time.time() * 1000))
 
     @staticmethod
     def _gen_api_sign(route, nonce, apiSecret, **kwargs):
@@ -27,12 +26,14 @@ class UpbitApi:
     def _validate_and_parse(resp):
         resp.raise_for_status()
         body = resp.json()
+        if body["status"] != "0000":
+            raise ReferenceError(body)
         return body["data"]
 
 
-class UpbitQuotation(UpbitApi):
+class BithumbPublic(BithumbApi):
     def __init__(self):
-        self.baseUrl = "https://api.upbit.com/v1"
+        self.baseUrl = "https://api.bithumb.com/public"
 
     def get(self, route, **kwargs):
         DELIM = "_"
@@ -50,14 +51,11 @@ class UpbitQuotation(UpbitApi):
         return self._validate_and_parse(resp)
 
 
-class UpbitExchange(UpbitApi):
+class BithumbPrivate(BithumbApi):
     def __init__(self, apiKey, apiSecret):
-        self.baseUrl = "https://api.upbit.com/v1"
+        self.baseUrl = "https://api.bithumb.com"
         self.apiKey = apiKey.encode("utf-8")
         self.apiSecret = apiSecret.encode("utf-8")
-
-    def get(self, route, **kwargs):
-        url = urljoin(self.baseUrl, route)
 
     def post(self, route, **kwargs):
         url = urljoin(self.baseUrl, route)

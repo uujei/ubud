@@ -51,15 +51,12 @@ def on_publish(client, userdata, mid):
 ################################################################
 # Message Parser
 ################################################################
-def parser(topic, msg: dict):
+def parser(root_topic, msg: dict):
+    # parent_topic = f"{root_topic}/" + "/".join([msg.pop(_TOPIC) for _TOPIC in MQTT_TOPICS])
+    # return [{"topic": f"{parent_topic}/{k}", "payload": v} for k, v in msg.items()]
     return {
-        "topic": f"{topic}/" + "/".join([msg[_TOPIC] for _TOPIC in MQTT_TOPICS]),
-        "payload": json.dumps(
-            {
-                **{k: v for k, v in msg.items() if k not in MQTT_TOPICS},
-                TS_MQ_SEND: time(),
-            }
-        ),
+        "topic": f"{root_topic}/" + "/".join([msg.pop(_TOPIC) for _TOPIC in MQTT_TOPICS]),
+        "payload": json.dumps({**{k: v for k, v in msg.items()}, TS_MQ_SEND: time()}),
     }
 
 
@@ -101,8 +98,8 @@ class Publisher:
 
     def __call__(self, msg):
         try:
-            parsed = parser(self.root_topic, msg)
-            logger.debug(f"[MQTT] Publish {parsed}")
-            self.client.publish(**parsed)
+            outputs = parser(self.root_topic, msg)
+            logger.debug(f"[MQTT] Publish {outputs}")
+            _ = [self.client.publish(*o) for o in outputs]
         except Exception as ex:
-            logger.warn(f"[MQTT] Publish Failed: {parsed}, {ex}")
+            logger.warn(f"[MQTT] Publish Failed - {ex}")

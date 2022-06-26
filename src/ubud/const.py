@@ -44,11 +44,11 @@ TOTAL_QUANTITY = "total_qty"
 BOOK_COUNT = "book_count"
 
 # MQ TIMESTAMP
-TS_MARKET = "ts_market"
-TS_WS_SEND = "ts_ws_send"
-TS_WS_RECV = "ts_ws_recv"
-TS_MQ_SEND = "ts_mq_send"
-TS_MQ_RECV = "ts_mq_recv"
+TS_MARKET = "_ts_market"
+TS_WS_SEND = "_ts_ws_send"
+TS_WS_RECV = "_ts_ws_recv"
+TS_MQ_SEND = "_ts_mq_send"
+TS_MQ_RECV = "_ts_mq_recv"
 
 # DATETIME FORMAT
 DT_FMT = "%Y-%m-%dT%H:%M:%S%z"
