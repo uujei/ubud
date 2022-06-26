@@ -13,7 +13,12 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-REMAINING_REQ_FORM = parse.compile("group={group}; min={min}; sec={sec}")
+REMAINING_REQ_FORM = parse.compile("group={group}; min={per_min_remaining}; sec={per_sec_remaining}")
+REPLENISH = {
+    "order": {"per_sec": 8, "per_min": 200},
+    "default": {"per_sec": 30, "per_min": 900},
+    "market": {"per_sec": 10, "per_min": 600},
+}
 
 ################################################################
 # Hanlders
@@ -103,5 +108,18 @@ class UpbitApi:
         return f"Bearer {jwt.encode(payload, apiSecret)}"
 
     @staticmethod
-    def _default_handler(resp, handlers=None):
-        return resp.json()
+    def _default_handler(resp):
+        # parse
+        data = resp.json()
+
+        # get rate limit info.
+        _rate_limit = REMAINING_REQ_FORM.parse(resp.headers["Remaining-Req"]).named
+        _group = _rate_limit["group"]
+        rate_limit = {
+            "per_sec_remaining": _rate_limit["per_sec_remaining"],
+            "per_sec_replenish": REPLENISH[_group]["per_sec"],
+            "per_min_remaining": _rate_limit["per_min_remaining"],
+            "per_min_replenish": REPLENISH[_group]["per_min"],
+        }
+
+        return data, rate_limit

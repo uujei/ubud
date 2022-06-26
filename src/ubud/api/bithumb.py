@@ -46,6 +46,20 @@ class BithumbApi:
         handlers = handlers if isinstance(handlers, list) else [handlers]
         self.handlers = handlers + [self._default_handler]
 
+    def run_batch_request(self, method, route, interval=3, **kwargs):
+        t0 = time.time()
+        try:
+            while True:
+                try:
+                    r = self._request(method=method, route=route, **kwargs)
+                    print(r)
+                    _sleep = max(0, interval - time.time() + t0)
+                    time.sleep(_sleep)
+                except Exception as ex:
+                    logger.error(ex)
+        except KeyboardInterrupt:
+            raise
+
     def _gen_header(self, route, **kwargs):
         # no required headers for public endpoints
         if route.strip("/").startswith("public"):
@@ -123,7 +137,19 @@ class BithumbApi:
 
     @staticmethod
     def _default_handler(resp):
+        # parse and valid provider's status code
         body = resp.json()
         if body["status"] != "0000":
             raise ReferenceError(body)
-        return body["data"]
+
+        # get rate limit info.
+        _remain = int(resp.headers["X-RateLimit-Remaining"])
+        _replen = int(resp.headers["X-RateLimit-Replenish-Rate"])
+        rate_limit = {
+            "per_sec_remaining": _remain,
+            "per_sec_replenish": _replen,
+            "per_min_remaining": _remain * 60,
+            "per_min_replenish": _replen * 60,
+        }
+
+        return body["data"], rate_limit
