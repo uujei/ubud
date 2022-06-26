@@ -53,7 +53,7 @@ def _concat_symbol_currency(symbol, currency):
     return f"{currency}-{symbol}".upper()
 
 
-def _split_symbol(symbol):
+async def _split_symbol(symbol):
     DELIM = "-"
     if DELIM in symbol:
         cur, symbol = symbol.split(DELIM)
@@ -68,7 +68,7 @@ def _split_symbol(symbol):
 async def trade_parser(body, handler=None, ts_ws_recv=None):
     # load body
     try:
-        symbol_currency = _split_symbol(body["cd"])
+        symbol_currency = await _split_symbol(body["cd"])
         ts_ws_send = int(body["tms"]) / 1e3
         msg = {
             DATETIME: ts_to_strdt(ts_ws_send),
@@ -95,7 +95,7 @@ async def orderbook_parser(body, handler=None, ts_ws_recv=None):
     # parse and pub
     if "obu" in body.keys():
         # base message
-        symbol_currency = _split_symbol(body["cd"])
+        symbol_currency = await _split_symbol(body["cd"])
         ts_ws_send = int(body["tms"]) / 1e3
         base_msg = {
             DATETIME: ts_to_strdt(ts_ws_send),

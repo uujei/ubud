@@ -53,7 +53,7 @@ def _concat_symbol_currency(symbol, currency):
     return f"{symbol}_{currency}".upper()
 
 
-def _split_symbol(symbol):
+async def _split_symbol(symbol):
     """Override Required
     Example is for BITHUMB
     """
@@ -79,7 +79,7 @@ async def trade_parser(body, handler=None, ts_ws_recv=None):
             }
             messages = []
             for r in content["list"]:
-                symbol_currency = _split_symbol(r["symbol"])
+                symbol_currency = await _split_symbol(r["symbol"])
                 msg = {
                     **base_msg,
                     **symbol_currency,
@@ -108,7 +108,7 @@ async def orderbook_parser(body, handler=None, ts_ws_recv=None):
                 QUOTE: ORDERBOOK,
             }
             for r in content["list"]:
-                symbol_currency = _split_symbol(r["symbol"])
+                symbol_currency = await _split_symbol(r["symbol"])
                 msg = {
                     **base_msg,
                     **symbol_currency,
@@ -182,7 +182,7 @@ class BaseWebsocket:
         recv = json.loads(recv)
         ts_ws_recv = time()
         logger.info(f"[WEBSOCKET] Receive Message from ORDERBOOK @ {ts_to_strdt(ts_ws_recv, _float=True)}")
-        logger.debug(f"[WEBSOCKET] Body: {recv}")
+        logger.info(f"[WEBSOCKET] Body: {recv}")
         if parser is not None:
             try:
                 _ = await parser(body=recv, handler=handler, ts_ws_recv=ts_ws_recv)

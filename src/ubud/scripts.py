@@ -73,7 +73,7 @@ def start_websocket_stream(market, quote, symbols, currency, broker, topic, clie
     )
 
     # correct symbols
-    symbols = [s for ss in symbols for s in ss.split(",")]
+    symbols = [s.strip().upper() for ss in symbols for s in ss.split(",")]
 
     # set publisher
     broker, broker_conf = get_broker_conf(broker)
@@ -85,7 +85,6 @@ def start_websocket_stream(market, quote, symbols, currency, broker, topic, clie
 
     # set streamer
     market = market.lower()
-    symbols = symbols if isinstance(symbols, (tuple, list)) else [s.strip() for s in symbols.split(",")]
     streamer = WEBSOCKET[market](
         quote=quote,
         symbols=symbols,
@@ -95,6 +94,58 @@ def start_websocket_stream(market, quote, symbols, currency, broker, topic, clie
 
     # start streaming
     streamer.start()
+
+
+################################################################
+# MULTI STREAM
+################################################################
+@ubud.command()
+@click.option("-m", "--markets", required=True)
+@click.option("-q", "--quotes", required=True)
+@click.option("-s", "--symbols", required=True, multiple=True)
+@click.option("-c", "--currency", default="KRW")
+@click.option("-b", "--broker", default=None)
+@click.option("-t", "--topic", default="ubud/quotation")
+@click.option("--client-id")
+@click.option("--log-level", default=logging.INFO, type=LogLevel())
+@click.option("--trace", is_flag=True)
+def start_websocket_stream_multi(markets, quotes, symbols, currency, broker, topic, client_id, log_level, trace):
+    import asyncio
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    # correct markets, quotes, symbols
+    markets = [m.lower() for m in markets.split(",")]
+    quotes = [q.lower() for q in quotes.split(",")]
+    symbols = [s.upper() for ss in symbols for s in ss.split(",")]
+
+    logger.info(markets)
+    logger.info(quotes)
+    logger.info(symbols)
+    # set publisher
+    broker, broker_conf = get_broker_conf(broker)
+    logger.info(f"[UBUD] Start Websocket Stream - Broker {broker} ({broker_conf})")
+    if broker is not None:
+        handler = PUBLISHER[broker](**broker_conf, root_topic=topic, client_id=client_id)
+    else:
+        handler = None
+
+    # gather coroutines
+    async def gatherer():
+        coroutines = []
+        for market in markets:
+            for quote in quotes:
+                logger.info(f"[UBUD] {market}, {quote}, {symbols}")
+                coroutines += [
+                    WEBSOCKET[market](quote=quote, symbols=symbols, currency=currency, handler=handler).run()
+                ]
+        await asyncio.gather(*coroutines)
+
+    asyncio.run(gatherer())
 
 
 ################################################################

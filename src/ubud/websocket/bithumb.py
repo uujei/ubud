@@ -57,7 +57,7 @@ def _concat_symbol_currency(symbol, currency):
     return f"{symbol}_{currency}".upper()
 
 
-def _split_symbol(symbol):
+async def _split_symbol(symbol):
     """Override Required
     Example is for BITHUMB
     """
@@ -81,7 +81,7 @@ async def trade_parser(body, handler=None, ts_ws_recv=None):
                 QUOTE: TRADE,
             }
             for r in content["list"]:
-                symbol_currency = _split_symbol(r["symbol"])
+                symbol_currency = await _split_symbol(r["symbol"])
                 trade_datetime = r["contDtm"].replace(" ", "T") + "+0900"
                 ts_market = datetime.strptime(trade_datetime, DT_FMT_FLOAT).timestamp()
                 msg = {
@@ -116,7 +116,7 @@ async def orderbook_parser(body, handler=None, ts_ws_recv=None):
                 QUOTE: ORDERBOOK,
             }
             for r in content["list"]:
-                symbol_currency = _split_symbol(r["symbol"])
+                symbol_currency = await _split_symbol(r["symbol"])
                 msg = {
                     **base_msg,
                     **symbol_currency,
