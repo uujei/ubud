@@ -5,7 +5,7 @@ import json
 import parse
 from clutter.aws import get_secrets
 from ..const import TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV, QUOTE
-from ..streamer.publisher_mqtt import MQTT_TOPICS
+from ..mqtt.publisher import MQTT_TOPICS
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import ASYNCHRONOUS, SYNCHRONOUS
 

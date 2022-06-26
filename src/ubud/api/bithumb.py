@@ -35,7 +35,7 @@ class BithumbApi:
         apiKey: str = None,
         apiSecret: str = None,
         apiVersion: str = "unknown",
-        handlers: list = None,
+        handlers: List[Callable] = None,
     ):
         self.apiKey = apiKey
         self.apiSecret = apiSecret
@@ -45,20 +45,6 @@ class BithumbApi:
         handlers = handlers if handlers is not None else []
         handlers = handlers if isinstance(handlers, list) else [handlers]
         self.handlers = handlers + [self._default_handler]
-
-    def run_batch_request(self, method, route, interval=3, **kwargs):
-        t0 = time.time()
-        try:
-            while True:
-                try:
-                    r = self._request(method=method, route=route, **kwargs)
-                    print(r)
-                    _sleep = max(0, interval - time.time() + t0)
-                    time.sleep(_sleep)
-                except Exception as ex:
-                    logger.error(ex)
-        except KeyboardInterrupt:
-            raise
 
     def _gen_header(self, route, **kwargs):
         # no required headers for public endpoints
@@ -143,13 +129,11 @@ class BithumbApi:
             raise ReferenceError(body)
 
         # get rate limit info.
-        _remain = int(resp.headers["X-RateLimit-Remaining"])
-        _replen = int(resp.headers["X-RateLimit-Replenish-Rate"])
         rate_limit = {
-            "per_sec_remaining": _remain,
-            "per_sec_replenish": _replen,
-            "per_min_remaining": _remain * 60,
-            "per_min_replenish": _replen * 60,
+            "per_sec_remaining": int(resp.headers["X-RateLimit-Remaining"]),
+            "per_sec_replenish": int(resp.headers["X-RateLimit-Replenish-Rate"]),
+            "per_min_remaining": None,
+            "per_min_replenish": None,
         }
 
-        return body["data"], rate_limit
+        return {"data": body["data"], "limit": rate_limit}

@@ -1,6 +1,8 @@
 import click
-from .streamer import upbit, bithumb
-from .streamer import publisher_mqtt
+
+from .websocket.bithumb import BithumbWebsocket
+from .websocket.upbit import UpbitWebsocket
+from .mqtt.publisher import Publisher as MqttPublisher
 from .connector.mqtt_source_console_log import start_mqtt_to_console as _start_mqtt_to_console
 from .connector.mqtt_source_influxdb_sink import Handler, start_mqtt_consumer as _start_mqtt_consumer
 import logging
@@ -14,13 +16,15 @@ logger.setLevel(logging.INFO)
 log_handler = logging.StreamHandler()
 logger.addHandler(log_handler)
 
+DEFAULT_LOG_FORMAT = "%(asctime)s:%(levelname)s:%(message)s"
+
 STREAMER = {
-    "upbit": upbit.Streamer,
-    "bithumb": bithumb.Streamer,
+    "upbit": UpbitWebsocket,
+    "bithumb": BithumbWebsocket,
 }
 
 PUBLISHER = {
-    "mqtt": publisher_mqtt.Publisher,
+    "mqtt": MqttPublisher,
 }
 
 # Helper
@@ -60,12 +64,12 @@ def ubud():
 @click.option("--client-id")
 @click.option("--log-level", default=logging.INFO, type=LogLevel())
 @click.option("--trace", is_flag=True)
-def start_quotation_stream(market, quote, symbols, currency, broker, topic, client_id, log_level, trace):
+def start_websocket_stream(market, quote, symbols, currency, broker, topic, client_id, log_level, trace):
 
     # set log level
     logging.basicConfig(
         level=log_level,
-        format="%(asctime)s:%(levelname)s:%(message)s",
+        format=DEFAULT_LOG_FORMAT,
     )
 
     # correct symbols
@@ -104,7 +108,7 @@ def start_mqtt_to_console(broker, topic, log_level):
     # set log level
     logging.basicConfig(
         level=log_level,
-        format="%(asctime)s:%(levelname)s:%(message)s",
+        format=DEFAULT_LOG_FORMAT,
     )
 
     # start stream
@@ -126,7 +130,7 @@ def start_mqtt_to_influxdb(src_topic, src_url, src_port, sink_bucket, sink_secre
     # set log level
     logging.basicConfig(
         level=log_level,
-        format="%(asctime)s:%(levelname)s:%(message)s",
+        format=DEFAULT_LOG_FORMAT,
     )
 
     # influxdb

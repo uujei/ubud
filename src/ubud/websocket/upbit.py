@@ -5,7 +5,7 @@ import sys
 from time import time
 from typing import Callable
 
-from .base import BaseStreamer
+from .base import BaseWebsocket
 from ..const import (
     AMOUNT,
     ASK,
@@ -29,7 +29,6 @@ from ..const import (
     TS_MARKET,
     ts_to_strdt,
 )
-from .publisher_mqtt import Publisher
 
 logger = logging.getLogger(__name__)
 
@@ -60,31 +59,6 @@ def _split_symbol(symbol):
         cur, symbol = symbol.split(DELIM)
         return {SYMBOL: symbol, CURRENCY: cur}
     return {SYMBOL: symbol, CURRENCY: "unknown"}
-
-
-def _generate_ws_params(quote, symbols):
-    """Override Required
-    Example is for BITHUMB
-    """
-    return [
-        {"ticket": f"{quote}-{'|'.join(sorted(symbols))}".lower()},
-        {
-            "type": QUOTE_PARAMS[quote],
-            "codes": symbols,
-            "isOnlyRealtime": True,
-        },
-        {"format": "SIMPLE"},
-    ]
-
-
-async def _request(ws, params):
-    """Override Required
-    Example is for BITHUMB
-    """
-    logger.info(f"[WEBSOCKET] Requsts with Parameters {params}")
-    params = json.dumps(params)
-    await ws.send(params)
-    logger.info("[WEBSOCKET] Connected Successfully...")
 
 
 ################################################################
@@ -176,9 +150,9 @@ PARSER = {
 
 
 ################################################################
-# Streamer
+# UpbitWebsocket
 ################################################################
-class Streamer(BaseStreamer):
+class UpbitWebsocket(BaseWebsocket):
     # init
     def __init__(
         self,
@@ -193,10 +167,29 @@ class Streamer(BaseStreamer):
         self.symbols = [_concat_symbol_currency(s, currency) for s in symbols]
         self.ws_url = URL
         self.ws_conf = {}
-        self.ws_params = _generate_ws_params(self.quote, self.symbols)
-        self.request = _request
+        self.ws_params = self._generate_ws_params(self.quote, self.symbols)
+        self.request = self._request
         self.parser = PARSER[quote]
         self.handler = handler
+
+    @staticmethod
+    def _generate_ws_params(quote, symbols):
+        return [
+            {"ticket": f"{quote}-{'|'.join(sorted(symbols))}".lower()},
+            {
+                "type": QUOTE_PARAMS[quote],
+                "codes": symbols,
+                "isOnlyRealtime": True,
+            },
+            {"format": "SIMPLE"},
+        ]
+
+    @staticmethod
+    async def _request(ws, params):
+        logger.info(f"[WEBSOCKET] Requsts with Parameters {params}")
+        params = json.dumps(params)
+        await ws.send(params)
+        logger.info("[WEBSOCKET] Connected Successfully...")
 
 
 ################################################################
@@ -208,6 +201,5 @@ if __name__ == "__main__":
     logger.addHandler(log_handler)
 
     quote = sys.argv[1] if len(sys.argv) > 1 else "orderbook"
-    publisher = Publisher()
-    ws = Streamer(quote="orderbook", symbols=["BTC", "ETH", "WAVES"], handler=publisher)
+    ws = UpbitWebsocket(quote="orderbook", symbols=["BTC", "ETH", "WAVES"])
     ws.start()

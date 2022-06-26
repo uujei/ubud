@@ -1,8 +1,6 @@
 import parse
-import base64
 from typing import List, Callable
 import hashlib
-import hmac
 import logging
 import time
 import uuid
@@ -43,7 +41,7 @@ class UpbitApi:
         apiKey: str = None,
         apiSecret: str = None,
         apiVersion: str = "v1",
-        handlers: list = None,
+        handlers: List[Callable] = None,
     ):
         self.apiKey = apiKey
         self.apiSecret = apiSecret
@@ -116,10 +114,10 @@ class UpbitApi:
         _rate_limit = REMAINING_REQ_FORM.parse(resp.headers["Remaining-Req"]).named
         _group = _rate_limit["group"]
         rate_limit = {
-            "per_sec_remaining": _rate_limit["per_sec_remaining"],
+            "per_sec_remaining": int(_rate_limit["per_sec_remaining"]),
             "per_sec_replenish": REPLENISH[_group]["per_sec"],
-            "per_min_remaining": _rate_limit["per_min_remaining"],
+            "per_min_remaining": int(_rate_limit["per_min_remaining"]),
             "per_min_replenish": REPLENISH[_group]["per_min"],
         }
 
-        return data, rate_limit
+        return {"data": data, "limit": rate_limit}
