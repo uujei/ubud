@@ -10,6 +10,7 @@ class ZmqLogAggregator:
     def __init__(
         self,
         host: str = "*",
+        port: int = None,
         handler=logging.StreamHandler(),
     ):
         logger.addHandler(handler)
@@ -17,19 +18,23 @@ class ZmqLogAggregator:
         self.host = host
 
         context = zmq.Context()
-        self.server = context.socket(zmq.REP)
+        self.socket = context.socket(zmq.REP)
 
-        # rep
-        self._server_port = self.server.bind_to_random_port(f"tcp://{host}")
-        logger.info(f"[LOGA] Running server on port: {self._server_port}")
+        if port is not None:
+            self.port = port
+            self.socket.bind(f"tcp://{host}:{self.port}")
+        else:
+            self.port = self.socket.bind_to_random_port(f"tcp://{host}")
+
+        logger.info(f"[LOGA] Running server on port: {self.port}")
 
     def run(self):
         try:
             while True:
-                msg = self.server.recv()
+                msg = self.socket.recv()
                 msg = msg.decode("utf-8").strip("\n")
                 print(msg)
-                self.server.send(b"0")
+                self.socket.send(b"0")
         except KeyboardInterrupt:
             logger.error("[LOGA] Keyboard Interrupted!")
         finally:
