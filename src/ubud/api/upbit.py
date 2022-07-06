@@ -4,19 +4,24 @@ import time
 import uuid
 from typing import Callable, List
 from urllib.parse import urlencode, urljoin
-
+from pydantic import BaseModel
 import jwt
 import parse
-
+from .validator.upbit import MODEL
 from .base import BaseApi
 
 logger = logging.getLogger(__name__)
 
+
+################################
+# Rate Limit Parser
+################################
 REMAINING_REQ_FORM = parse.compile("group={group}; min={per_min_remaining}; sec={per_sec_remaining}")
 REPLENISH = {
     "order": {"per_sec": 8, "per_min": 200},
     "default": {"per_sec": 30, "per_min": 900},
     "market": {"per_sec": 10, "per_min": 600},
+    "status-wallet": {"per_sec": 10, "per_min": 600},  # 정확하지 않음
 }
 
 ################################################################
@@ -37,6 +42,11 @@ class UpbitApi(BaseApi):
     # Upbit URL
     baseUrl = "https://api.upbit.com"
     apiVersion = "v1"
+
+    async def request(self, path: str, **kwargs):
+        model = MODEL[path.strip("/")](**kwargs)
+        data = await self._request(**model.dict(exclude_none=True))
+        return data
 
     def _gen_request_args(self, route, **kwargs):
         if not route.strip("/").startswith(self.apiVersion):
@@ -85,11 +95,14 @@ class UpbitApi(BaseApi):
         # get rate limit info.
         _rate_limit = REMAINING_REQ_FORM.parse(headers["Remaining-Req"]).named
         _group = _rate_limit["group"]
-        rate_limit = {
-            "per_sec_remaining": int(_rate_limit["per_sec_remaining"]),
-            "per_sec_replenish": REPLENISH[_group]["per_sec"],
-            "per_min_remaining": int(_rate_limit["per_min_remaining"]),
-            "per_min_replenish": REPLENISH[_group]["per_min"],
-        }
+        try:
+            rate_limit = {
+                "per_sec_remaining": int(_rate_limit["per_sec_remaining"]),
+                "per_sec_replenish": REPLENISH[_group]["per_sec"],
+                "per_min_remaining": int(_rate_limit["per_min_remaining"]),
+                "per_min_replenish": REPLENISH[_group]["per_min"],
+            }
+        except KeyError as e:
+            logging.warn(f"NEW LIMIT HEADER GROUP FOUND {_group}")
 
         return rate_limit

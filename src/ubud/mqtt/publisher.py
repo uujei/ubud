@@ -10,6 +10,7 @@ from paho.mqtt.client import MQTTv5, MQTTv311
 from ..const import (
     CURRENCY,
     MARKET,
+    MQ_SUBTOPICS,
     ORDERBOOK,
     ORDERTYPE,
     QUOTE,
@@ -30,9 +31,6 @@ logger = logging.getLogger(__name__)
 ################################################################
 # SETTINGS
 ################################################################
-# MQTT TOPICS
-MQTT_TOPICS = [QUOTE, MARKET, SYMBOL, CURRENCY, ORDERTYPE]
-
 # default on_connect
 def on_connect(client, userdata, flag, rc):
     if rc != 0:
@@ -56,7 +54,7 @@ def on_publish(client, userdata, mid):
 ################################################################
 def parser(root_topic: str, msg: dict):
     return {
-        "topic": f"{root_topic}/" + "/".join([msg.pop(_TOPIC) for _TOPIC in MQTT_TOPICS]),
+        "topic": f"{root_topic}/" + "/".join([msg.pop(_TOPIC) for _TOPIC in MQ_SUBTOPICS]),
         "payload": json.dumps({**{k: v for k, v in msg.items()}, TS_MQ_SEND: time()}),
     }
 
@@ -70,9 +68,9 @@ class Publisher:
         url: str = "localhost",
         port: int = 1883,
         root_topic: str = "ubud",
+        client_id: str = None,
         qos: int = 0,
         retain: bool = False,
-        client_id: str = None,
         keepalive: int = 60,
         protocol: int = MQTTv5,
         transport: int = "tcp",

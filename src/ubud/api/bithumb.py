@@ -6,12 +6,15 @@ import time
 from urllib.parse import urlencode, urljoin
 import logging
 from .base import BaseApi
+from .validator.bithumb import MODEL
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 PATH_PARAMS_PUBLIC = ["order_currency", "payment_currency"]
 DELIM_PATH_PARAMS = "_"
 REQUEST_LIMIT_PREFIX = "X-RateLimit-"
+
 
 ################################################################
 # Handlers
@@ -30,6 +33,11 @@ class BithumbApi(BaseApi):
     # BITHUMB API URL
     baseUrl = "https://api.bithumb.com"
     apiVersion = "unknown"
+
+    async def request(self, path: str, **kwargs):
+        model = MODEL[path.strip("/")](**kwargs)
+        data = await self._request(**model.dict(exclude_none=True))
+        return data
 
     def _gen_request_args(self, route, **kwargs):
         # for public endpoints
@@ -94,7 +102,8 @@ class BithumbApi(BaseApi):
     async def _default_handler(resp):
         body = await resp.json()
         # parse and valid provider's status code
-        assert body["status"] == "0000", f"[API] STATUS CODE {body['status']}"
+        if body["status"] != "0000":
+            raise ReferenceError(f"[ERROR] STATUS CODE {body['status']} - {body['message']}")
         return body["data"]
 
     @staticmethod

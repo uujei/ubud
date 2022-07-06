@@ -29,13 +29,19 @@ class BaseApi(abc.ABC):
 
         async with aiohttp.ClientSession() as client:
             async with client.request(method=method, **args) as resp:
-                assert resp.status == 200, f"[REQUESTS] STATUS CODE {resp.status}"
+                if resp.status not in [200, 201]:
+                    _text = await resp.text()
+                    raise ReferenceError(f"status code: {resp.status}, message: {_text}")
                 _ = self._limit_handler(resp.headers)
 
                 for handler in self.handlers:
                     r = await handler(resp)
                     if r is not None:
                         return r
+
+    @abc.abstractmethod
+    async def request(self, route, **kwargs):
+        pass
 
     @abc.abstractstaticmethod
     async def _default_handler(resp):

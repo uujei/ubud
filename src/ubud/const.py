@@ -83,9 +83,13 @@ TS_WS_RECV = "_ts_ws_recv"
 TS_MQ_SEND = "_ts_mq_send"
 TS_MQ_RECV = "_ts_mq_recv"
 
+# MQ SUBTOPIC RULES
+MQ_SUBTOPICS = [QUOTE, MARKET, SYMBOL, CURRENCY, ORDERTYPE]
+
 # DATETIME FORMAT
 DT_FMT = "%Y-%m-%dT%H:%M:%S%z"
 DT_FMT_FLOAT = "%Y-%m-%dT%H:%M:%S.%f%z"
+
 
 # timestamp to string datetime (w/ ISO format)
 def ts_to_strdt(ts, _float=False):

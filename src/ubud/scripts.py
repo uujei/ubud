@@ -3,6 +3,7 @@ import click
 from .websocket.bithumb import BithumbWebsocket
 from .websocket.upbit import UpbitWebsocket
 from .mqtt.publisher import Publisher as MqttPublisher
+from .redis.publisher import Publisher as RedisPublisher
 from .connector.mqtt_source_console_log import start_mqtt_to_console as _start_mqtt_to_console
 from .connector.mqtt_source_influxdb_sink import Handler, start_mqtt_consumer as _start_mqtt_consumer
 import logging
@@ -25,22 +26,23 @@ WEBSOCKET = {
 
 PUBLISHER = {
     "mqtt": MqttPublisher,
+    "redis": RedisPublisher,
 }
 
 # Helper
 def get_broker_conf(broker):
     if broker is None:
         return broker, None
-    broker = broker.lower()
-    if broker.startswith("mqtt"):
-        if broker == "mqtt":
-            return "mqtt", {}
-        _broker = broker.replace("mqtt://", "").split(":")
-        if len(_broker) == 1:
-            return "mqtt", {"url": _broker[0]}
-        if len(_broker) == 2:
-            return "mqtt", {"url": _broker[0], "port": int(_broker[1])}
-    raise ReferenceError(f"Broker {broker} is Not Available!")
+
+    if "://" not in broker:
+        return broker, {}
+
+    broker, host = broker.split("://")
+    if ":" not in host:
+        return broker, {"url": host}
+
+    host, port = host.split(":")
+    return broker, {"url": host, "port": port}
 
 
 ################################################################

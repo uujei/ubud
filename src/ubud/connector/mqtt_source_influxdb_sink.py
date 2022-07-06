@@ -4,8 +4,7 @@ from time import time
 import json
 import parse
 from clutter.aws import get_secrets
-from ..const import TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV, QUOTE
-from ..mqtt.publisher import MQTT_TOPICS
+from ..const import TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV, QUOTE, MQ_SUBTOPICS
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import ASYNCHRONOUS, SYNCHRONOUS
 
@@ -13,7 +12,7 @@ snap1 = []
 
 logger = logging.getLogger(__name__)
 
-_compile = "/".join(["{topic}/{api_category}", *[f"{{{t}}}" for t in MQTT_TOPICS]])
+_compile = "/".join(["{topic}/{api_category}", *[f"{{{t}}}" for t in MQ_SUBTOPICS]])
 print(_compile)
 Parser = parse.compile(_compile)
 BUCKET = "api_category"
