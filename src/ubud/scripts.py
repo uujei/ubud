@@ -61,11 +61,11 @@ def ubud():
 # STREAM WEBSOCKET
 ################################################################
 @ubud.command()
-@click.option("-m", "--markets", required=True)
-@click.option("-q", "--quotes", required=True)
-@click.option("-s", "--symbols", required=True, multiple=True)
+@click.option("-m", "--markets", default="upbit,bithumb")
+@click.option("-q", "--quotes", default="trade,orderbook")
+@click.option("-s", "--symbols", default=["BTC", "WAVES"], multiple=True)
 @click.option("-c", "--currency", default="KRW")
-@click.option("-b", "--broker", default=None)
+@click.option("-b", "--broker", default="redis")
 @click.option("-t", "--topic", default="ubud")
 @click.option("--client-id")
 @click.option("--log-level", default=logging.INFO, type=LogLevel())

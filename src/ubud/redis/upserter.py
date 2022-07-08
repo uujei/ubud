@@ -50,6 +50,7 @@ class Upserter:
         url: str = "localhost",
         port: int = 6379,
         root_topic: str = "ubud",
+        expire_sec: int = 600,
         client_id: str = None,
         parser: Callable = parser,
         _decode_responses: bool = True,
@@ -58,6 +59,7 @@ class Upserter:
         self.url = url
         self.port = port
         self.root_topic = root_topic
+        self.expire_sec = expire_sec
         self.client_id = client_id
         self.parser = parser
         self._decode_responses = _decode_responses
@@ -72,7 +74,7 @@ class Upserter:
     async def __call__(self, messages):
         try:
             outputs = await asyncio.gather(*[parser(self.root_topic, msg) for msg in messages])
-            await asyncio.gather(*[self.client.set(**o) for o in outputs])
+            await asyncio.gather(*[self.client.set(**o, ex=self.expire_sec) for o in outputs])
             print(f"OUTPUTS!!! {outputs}")
             await self.update_keys([o["name"] for o in outputs])
             logger.debug(f"[REDIS] Update {outputs}")
