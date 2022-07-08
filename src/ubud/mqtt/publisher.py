@@ -97,11 +97,16 @@ class Publisher:
             keepalive=keepalive,
         )
 
-    def __call__(self, msg):
+    async def __call__(self, messages):
+        """
+        Async 아님
+        """
         try:
-            outputs = parser(self.root_topic, msg)
-            logger.debug(f"[MQTT] Publish {outputs}")
-            self.client.publish(**outputs, qos=self.qos, retain=self.retain)
+            _ = [
+                self.client.publish(**parser(self.root_topic, msg), qos=self.qos, retain=self.retain)
+                for msg in messages
+            ]
+            logger.debug(f"[MQTT] Publish {messages}")
         except Exception as ex:
             logger.warn(f"[MQTT] Publish Failed - {ex}")
             traceback.print_exc()

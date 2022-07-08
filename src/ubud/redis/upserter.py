@@ -1,9 +1,12 @@
+import asyncio
 import json
 import logging
 import traceback
 from time import time
 from typing import Callable
-import asyncio
+
+import paho.mqtt.client as mqtt
+from paho.mqtt.client import MQTTv5, MQTTv311
 
 import redis.asyncio as redis
 
@@ -33,15 +36,15 @@ logger = logging.getLogger(__name__)
 ################################################################
 async def parser(root_topic: str, msg: dict):
     return {
-        "channel": f"{root_topic}/" + "/".join([msg.pop(_TOPIC) for _TOPIC in MQ_SUBTOPICS]),
-        "message": json.dumps({**{k: v for k, v in msg.items()}, TS_MQ_SEND: time()}),
+        "name": f"{root_topic}/" + "/".join([msg.pop(_TOPIC) for _TOPIC in MQ_SUBTOPICS]),
+        "value": json.dumps({**{k: v for k, v in msg.items()}, TS_MQ_SEND: time()}),
     }
 
 
 ################################################################
 # MQTT Default Callbacks
 ################################################################
-class Publisher:
+class Upserter:
     def __init__(
         self,
         url: str = "localhost",
@@ -62,11 +65,27 @@ class Publisher:
         # client
         self.client = redis.Redis(host=self.url, port=self.port, decode_responses=self._decode_responses)
 
+        # key store
+        self.keys = None
+        self.keys_key = f"{self.root_topic}/keys"
+
     async def __call__(self, messages):
         try:
-            outputs = asyncio.gather(*[parser(self.root_topic, msg) for msg in messages])
-            await asyncio.gather(*[self.client.publish(**o) for o in outputs])
-            logger.debug(f"[REDIS] Publish {outputs}")
+            outputs = await asyncio.gather(*[parser(self.root_topic, msg) for msg in messages])
+            await asyncio.gather(*[self.client.set(**o) for o in outputs])
+            print(f"OUTPUTS!!! {outputs}")
+            await self.update_keys([o["name"] for o in outputs])
+            logger.debug(f"[REDIS] Update {outputs}")
         except Exception as ex:
-            logger.warn(f"[REDIS] Publish Failed - {ex}")
+            logger.warn(f"[REDIS] Update Failed - {ex}")
             traceback.print_exc()
+
+    async def update_keys(self, keys):
+        if self.keys is None:
+            self.keys = await self.client.keys(f"{self.root_topic}/*")
+            await self.client.sadd(self.keys_key, *self.keys)
+            return
+        unregistered = [k for k in keys if k not in self.keys]
+        if len(unregistered) == 0:
+            return
+        await self.client.sadd(self.keys_key, *unregistered)

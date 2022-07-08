@@ -9,6 +9,7 @@ from typing import Callable
 from .base import BaseWebsocket
 from ..const import (
     AMOUNT,
+    API_CATEGORY,
     ASK,
     BID,
     BOOK_COUNT,
@@ -38,7 +39,7 @@ logger = logging.getLogger(__name__)
 # Market Conf
 ################################################################
 THIS_MARKET = "bithumb"
-API_CATEGORY = "quotation"
+THIS_API_CATEGORY = "quotation"
 URL = "wss://pubwss.bithumb.com/pub/ws"
 QUOTE_PARAMS = {
     TICKER: "ticker",
@@ -71,13 +72,16 @@ async def _split_symbol(symbol):
 # Market Parsers
 ################################################################
 # [TRADE]
-async def trade_parser(body, handler=None, ts_ws_recv=None):
+async def trade_parser(body, ts_ws_recv=None):
+    messages = []
+
     # parse and pub
     if "content" in body.keys():
         try:
             content = body["content"]
             base_msg = {
                 MARKET: THIS_MARKET,
+                API_CATEGORY: THIS_API_CATEGORY,
                 QUOTE: TRADE,
             }
             for r in content["list"]:
@@ -95,16 +99,18 @@ async def trade_parser(body, handler=None, ts_ws_recv=None):
                     TS_MARKET: ts_market,
                     TS_WS_RECV: ts_ws_recv,
                 }
+                messages += [msg]
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-                if handler is not None:
-                    handler(msg)
-
         except Exception as ex:
             logger.warn(f"[{__name__}] {ex}")
 
+    return messages
+
 
 # [ORDERBOOK]
-async def orderbook_parser(body, handler=None, ts_ws_recv=None):
+async def orderbook_parser(body, ts_ws_recv=None):
+    messages = []
+
     # parse and pub
     if "content" in body.keys():
         try:
@@ -113,6 +119,7 @@ async def orderbook_parser(body, handler=None, ts_ws_recv=None):
             base_msg = {
                 DATETIME: ts_to_strdt(ts_ws_send),
                 MARKET: THIS_MARKET,
+                API_CATEGORY: THIS_API_CATEGORY,
                 QUOTE: ORDERBOOK,
             }
             for r in content["list"]:
@@ -127,12 +134,13 @@ async def orderbook_parser(body, handler=None, ts_ws_recv=None):
                     TS_WS_SEND: ts_ws_send,
                     TS_WS_RECV: ts_ws_recv,
                 }
+                messages += [msg]
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-                if handler is not None:
-                    handler(msg)
 
         except Exception as ex:
             logger.warn(f"[{__name__}] {ex}")
+
+    return messages
 
 
 # PARSER

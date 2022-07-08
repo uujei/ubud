@@ -68,7 +68,9 @@ async def _split_symbol(symbol):
 # Market Parsers
 ################################################################
 # [TRADE]
-async def trade_parser(body, handler=None, ts_ws_recv=None):
+async def trade_parser(body, ts_ws_recv=None):
+    messages = []
+
     # parse and pub
     if "content" in body.keys():
         try:
@@ -78,7 +80,6 @@ async def trade_parser(body, handler=None, ts_ws_recv=None):
                 MARKET: THIS_MARKET,
                 QUOTE: TRADE,
             }
-            messages = []
             for r in content["list"]:
                 symbol_currency = await _split_symbol(r["symbol"])
                 msg = {
@@ -90,15 +91,18 @@ async def trade_parser(body, handler=None, ts_ws_recv=None):
                     QUANTITY: float(r["contQty"]),
                     AMOUNT: float(r["contAmt"]),
                 }
-                if handler is not None:
-                    handler(messages)
+                messages += [msg]
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
         except Exception as ex:
             logger.warn(f"[{__name__}] {ex}")
 
+    return messages
+
 
 # [ORDERBOOK]
-async def orderbook_parser(body, handler=None, ts_ws_recv=None):
+async def orderbook_parser(body, ts_ws_recv=None):
+    messages = []
+
     # parse and pub
     if "content" in body.keys():
         try:
@@ -118,11 +122,12 @@ async def orderbook_parser(body, handler=None, ts_ws_recv=None):
                     QUANTITY: float(r["quantity"]),
                     BOOK_COUNT: int(r["total"]),
                 }
-                if handler is not None:
-                    handler(msg)
+                messages += [msg]
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
         except Exception as ex:
             logger.warn(f"[{__name__}] {ex}")
+
+    return messages
 
 
 # PARSER
@@ -180,15 +185,24 @@ class BaseWebsocket:
         recv = await ws.recv()
         if recv is None:
             return
-        recv = json.loads(recv)
+        msg = json.loads(recv)
         ts_ws_recv = time()
         logger.info(f"[WEBSOCKET] Receive Message from ORDERBOOK @ {ts_to_strdt(ts_ws_recv, _float=True)}")
-        logger.info(f"[WEBSOCKET] Body: {recv}")
+        logger.info(f"[WEBSOCKET] Body: {msg}")
+
+        # parser
         if parser is not None:
             try:
-                _ = await parser(body=recv, handler=handler, ts_ws_recv=ts_ws_recv)
+                msg = await parser(body=msg, ts_ws_recv=ts_ws_recv)
             except Exception as ex:
                 logger.warn(f"[WEBSOCKET] Error Parsing {ts_ws_recv}: {ex}")
+
+        # handler
+        if handler is not None:
+            try:
+                await handler(msg)
+            except Exception as ex:
+                logger.warn(f"[WEBSOCKET] Error Execute Handler: {ex}")
 
     @staticmethod
     def _generate_ws_params(quote, symbols):

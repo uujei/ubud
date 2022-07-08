@@ -9,6 +9,7 @@ from .base import BaseWebsocket
 from ..const import (
     AMOUNT,
     ASK,
+    API_CATEGORY,
     BID,
     BOOK_COUNT,
     CURRENCY,
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 # Market Conf
 ################################################################
 THIS_MARKET = "upbit"
-API_CATEGORY = "quotation"
+THIS_API_CATEGORY = "quotation"
 URL = "wss://api.upbit.com/websocket/v1"
 QUOTE_PARAMS = {
     TICKER: "ticker",
@@ -65,7 +66,7 @@ async def _split_symbol(symbol):
 # Market Parsers
 ################################################################
 # TRADE
-async def trade_parser(body, handler=None, ts_ws_recv=None):
+async def trade_parser(body, ts_ws_recv=None):
     # load body
     try:
         symbol_currency = await _split_symbol(body["cd"])
@@ -73,6 +74,7 @@ async def trade_parser(body, handler=None, ts_ws_recv=None):
         msg = {
             DATETIME: ts_to_strdt(ts_ws_send),
             MARKET: THIS_MARKET,
+            API_CATEGORY: THIS_API_CATEGORY,
             QUOTE: TRADE,
             **symbol_currency,
             TRADE_SID: body["sid"],
@@ -84,15 +86,16 @@ async def trade_parser(body, handler=None, ts_ws_recv=None):
             TS_WS_RECV: ts_ws_recv,
         }
         logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-        if handler is not None:
-            handler(msg)
     except Exception as ex:
         logger.warn(f"[{__name__}] {ex}")
 
+    return [msg]
+
 
 # ORDERBOOK
-async def orderbook_parser(body, handler=None, ts_ws_recv=None):
-    # parse and pub
+async def orderbook_parser(body, ts_ws_recv=None):
+    messages = []
+    # parse
     if "obu" in body.keys():
         # base message
         symbol_currency = await _split_symbol(body["cd"])
@@ -100,12 +103,14 @@ async def orderbook_parser(body, handler=None, ts_ws_recv=None):
         base_msg = {
             DATETIME: ts_to_strdt(ts_ws_send),
             MARKET: THIS_MARKET,
+            API_CATEGORY: THIS_API_CATEGORY,
             QUOTE: ORDERBOOK,
             **symbol_currency,
         }
         # parse and pub
         try:
             for r in body["obu"]:
+                # ASK
                 msg = {
                     **base_msg,
                     ORDERTYPE: ASK,
@@ -114,9 +119,10 @@ async def orderbook_parser(body, handler=None, ts_ws_recv=None):
                     TS_WS_SEND: ts_ws_send,
                     TS_WS_RECV: ts_ws_recv,
                 }
+                messages += [msg]
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-                if handler is not None:
-                    handler(msg)
+
+                # BID
                 msg = {
                     **base_msg,
                     ORDERTYPE: BID,
@@ -125,21 +131,21 @@ async def orderbook_parser(body, handler=None, ts_ws_recv=None):
                     TS_WS_SEND: ts_ws_send,
                     TS_WS_RECV: ts_ws_recv,
                 }
+                messages += [msg]
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-                if handler is not None:
-                    handler(msg)
-            # Additional Info (total_ask_size, total_bid_size)
+
+            # TOTAL_ASK_SIZE
             base_msg[QUOTE] = f"{base_msg[QUOTE]}_total_qty"
             msg = {**base_msg, ORDERTYPE: ASK, QUANTITY: body["tas"]}
             logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-            if handler is not None:
-                handler(msg)
+            messages += [msg]
+
+            # TOTAL_BID_SIZE
             msg = {**base_msg, ORDERTYPE: BID, QUANTITY: body["tbs"]}
             logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-            if handler is not None:
-                handler(msg)
         except Exception as ex:
             logger.warn(f"[{__name__}] {ex}")
+    return messages
 
 
 # PARSER

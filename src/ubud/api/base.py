@@ -12,16 +12,14 @@ class BaseApi(abc.ABC):
         self,
         apiKey: str = None,
         apiSecret: str = None,
-        handlers: List[Callable] = None,
+        handlers: List[Callable] = [],
     ):
         self.apiKey = apiKey
         self.apiSecret = apiSecret
+        self.handlers = handlers if isinstance(handlers, list) else [handlers]
+
         self._private_ready = all([c is not None for c in [apiKey, apiSecret]])
         self._remains = None
-
-        handlers = handlers if handlers is not None else []
-        handlers = handlers if isinstance(handlers, list) else [handlers]
-        self.handlers = handlers + [self._default_handler]
 
     async def _request(self, method, route, **kwargs):
         # get request args
@@ -32,23 +30,21 @@ class BaseApi(abc.ABC):
                 if resp.status not in [200, 201]:
                     _text = await resp.text()
                     raise ReferenceError(f"status code: {resp.status}, message: {_text}")
-                _ = self._limit_handler(resp.headers)
+                _handlers = [
+                    self._limit_handler(resp.headers),
+                    *[handler(resp) for handler in self.handlers],
+                    self._default_handler(resp),
+                ]
+                results = asyncio.gather(*_handlers)
 
-                for handler in self.handlers:
-                    r = await handler(resp)
-                    if r is not None:
-                        return r
+                return results[-1]
 
     @abc.abstractmethod
     async def request(self, route, **kwargs):
         pass
 
     @abc.abstractstaticmethod
-    async def _default_handler(resp):
-        pass
-
-    @abc.abstractstaticmethod
-    def _limit_handler(resp):
+    async def _limit_handler(resp):
         pass
 
     @abc.abstractmethod

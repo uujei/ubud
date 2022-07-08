@@ -91,7 +91,7 @@ class UpbitApi(BaseApi):
         return await resp.json()
 
     @staticmethod
-    def _limit_handler(headers):
+    async def _limit_handler(headers):
         # get rate limit info.
         _rate_limit = REMAINING_REQ_FORM.parse(headers["Remaining-Req"]).named
         _group = _rate_limit["group"]

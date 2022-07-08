@@ -1,21 +1,24 @@
-import click
-
-from .websocket.bithumb import BithumbWebsocket
-from .websocket.upbit import UpbitWebsocket
-from .mqtt.publisher import Publisher as MqttPublisher
-from .redis.publisher import Publisher as RedisPublisher
-from .connector.mqtt_source_console_log import start_mqtt_to_console as _start_mqtt_to_console
-from .connector.mqtt_source_influxdb_sink import Handler, start_mqtt_consumer as _start_mqtt_consumer
 import logging
+
+import click
 from click_loglevel import LogLevel
+from clutter.aws import get_secrets
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
-from clutter.aws import get_secrets
+
+from .connector.mqtt_source_console_log import start_mqtt_to_console as _start_mqtt_to_console
+from .connector.mqtt_source_influxdb_sink import Handler
+from .connector.mqtt_source_influxdb_sink import start_mqtt_consumer as _start_mqtt_consumer
+from .mqtt.publisher import Publisher as MqttPublisher
+from .redis.publisher import Publisher as RedisPublisher
+from .redis.upserter import Upserter as RedisUpserter
+from .websocket.bithumb import BithumbWebsocket
+from .websocket.upbit import UpbitWebsocket
 
 logger = logging.getLogger(__name__)
+logger.propagate = False
 logger.setLevel(logging.INFO)
-log_handler = logging.StreamHandler()
-logger.addHandler(log_handler)
+logger.addHandler(logging.StreamHandler())
 
 DEFAULT_LOG_FORMAT = "%(asctime)s:%(levelname)s:%(message)s"
 
@@ -26,7 +29,8 @@ WEBSOCKET = {
 
 PUBLISHER = {
     "mqtt": MqttPublisher,
-    "redis": RedisPublisher,
+    "redis": RedisUpserter,
+    "redis-pub": RedisPublisher,
 }
 
 # Helper
@@ -54,6 +58,58 @@ def ubud():
 
 
 ################################################################
+# STREAM WEBSOCKET
+################################################################
+@ubud.command()
+@click.option("-m", "--markets", required=True)
+@click.option("-q", "--quotes", required=True)
+@click.option("-s", "--symbols", required=True, multiple=True)
+@click.option("-c", "--currency", default="KRW")
+@click.option("-b", "--broker", default=None)
+@click.option("-t", "--topic", default="ubud")
+@click.option("--client-id")
+@click.option("--log-level", default=logging.INFO, type=LogLevel())
+@click.option("--trace", is_flag=True)
+def stream_websocket(markets, quotes, symbols, currency, broker, topic, client_id, log_level, trace):
+    import asyncio
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    # correct markets, quotes, symbols
+    markets = [m.lower() for m in markets.split(",")]
+    logger.info(f"[UBUD] markets: {markets}")
+    quotes = [q.lower() for q in quotes.split(",")]
+    logger.info(f"[UBUD] quotes: {quotes}")
+    symbols = [s.upper() for ss in symbols for s in ss.split(",")]
+    logger.info(f"[UBUD] symbols: {symbols}")
+
+    # set publisher
+    broker, broker_conf = get_broker_conf(broker)
+    logger.info(f"[UBUD] Start Websocket Stream - Broker {broker} ({broker_conf})")
+    if broker is not None:
+        handler = PUBLISHER[broker](**broker_conf, root_topic=topic, client_id=client_id)
+    else:
+        handler = None
+
+    # gather coroutines
+    async def gatherer():
+        coroutines = []
+        for market in markets:
+            for quote in quotes:
+                logger.info(f"[UBUD] {market}, {quote}, {symbols}")
+                coroutines += [
+                    WEBSOCKET[market](quote=quote, symbols=symbols, currency=currency, handler=handler).run()
+                ]
+        await asyncio.gather(*coroutines)
+
+    asyncio.run(gatherer())
+
+
+################################################################
 # QUOTATION STREAM
 ################################################################
 @ubud.command()
@@ -66,7 +122,7 @@ def ubud():
 @click.option("--client-id")
 @click.option("--log-level", default=logging.INFO, type=LogLevel())
 @click.option("--trace", is_flag=True)
-def start_websocket_stream(market, quote, symbols, currency, broker, topic, client_id, log_level, trace):
+def stream_websocket_single(market, quote, symbols, currency, broker, topic, client_id, log_level, trace):
 
     # set log level
     logging.basicConfig(
@@ -96,58 +152,6 @@ def start_websocket_stream(market, quote, symbols, currency, broker, topic, clie
 
     # start streaming
     streamer.start()
-
-
-################################################################
-# MULTI STREAM
-################################################################
-@ubud.command()
-@click.option("-m", "--markets", required=True)
-@click.option("-q", "--quotes", required=True)
-@click.option("-s", "--symbols", required=True, multiple=True)
-@click.option("-c", "--currency", default="KRW")
-@click.option("-b", "--broker", default=None)
-@click.option("-t", "--topic", default="ubud/quotation")
-@click.option("--client-id")
-@click.option("--log-level", default=logging.INFO, type=LogLevel())
-@click.option("--trace", is_flag=True)
-def start_websocket_stream_multi(markets, quotes, symbols, currency, broker, topic, client_id, log_level, trace):
-    import asyncio
-
-    # set log level
-    logging.basicConfig(
-        level=log_level,
-        format=DEFAULT_LOG_FORMAT,
-    )
-
-    # correct markets, quotes, symbols
-    markets = [m.lower() for m in markets.split(",")]
-    quotes = [q.lower() for q in quotes.split(",")]
-    symbols = [s.upper() for ss in symbols for s in ss.split(",")]
-
-    logger.info(markets)
-    logger.info(quotes)
-    logger.info(symbols)
-    # set publisher
-    broker, broker_conf = get_broker_conf(broker)
-    logger.info(f"[UBUD] Start Websocket Stream - Broker {broker} ({broker_conf})")
-    if broker is not None:
-        handler = PUBLISHER[broker](**broker_conf, root_topic=topic, client_id=client_id)
-    else:
-        handler = None
-
-    # gather coroutines
-    async def gatherer():
-        coroutines = []
-        for market in markets:
-            for quote in quotes:
-                logger.info(f"[UBUD] {market}, {quote}, {symbols}")
-                coroutines += [
-                    WEBSOCKET[market](quote=quote, symbols=symbols, currency=currency, handler=handler).run()
-                ]
-        await asyncio.gather(*coroutines)
-
-    asyncio.run(gatherer())
 
 
 ################################################################
