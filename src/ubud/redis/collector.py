@@ -73,7 +73,7 @@ class Collector:
                     await self.redis_client.set(name=data["name"], value=data["value"], ex=self.redis_expire_sec)
 
                     # update stream offset
-                    logger.info(f"[COLLECTOR] Update Stream Offset {stream_name}, {idx}")
+                    logger.debug(f"[COLLECTOR] Update Stream Offset {stream_name}, {idx}")
                     self._redis_stream_offset.update({stream_name: idx})
 
                     # update key

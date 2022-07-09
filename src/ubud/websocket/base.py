@@ -170,16 +170,6 @@ class BaseWebsocket:
             while True:
                 _ = await self._recv(ws, parser=self.parser, handler=self.handler)
 
-    # start
-    def start(self):
-        try:
-            asyncio.run(self.run())
-        except KeyboardInterrupt:
-            logger.error("[WEBSOCKET] Keboard Interrupt.. EXIT!")
-        finally:
-            if isinstance(self.handler, mqtt.Client):
-                self.handler.close()
-
     @staticmethod
     async def _recv(ws, parser=None, handler=None):
         recv = await ws.recv()
@@ -187,8 +177,8 @@ class BaseWebsocket:
             return
         msg = json.loads(recv)
         ts_ws_recv = time()
-        logger.info(f"[WEBSOCKET] Receive Message from ORDERBOOK @ {ts_to_strdt(ts_ws_recv, _float=True)}")
-        logger.info(f"[WEBSOCKET] Body: {msg}")
+        logger.debug(f"[WEBSOCKET] Receive Message from ORDERBOOK @ {ts_to_strdt(ts_ws_recv, _float=True)}")
+        logger.debug(f"[WEBSOCKET] Body: {msg}")
 
         # parser
         if parser is not None:

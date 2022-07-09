@@ -59,7 +59,7 @@ class Streamer:
     async def xadd(self, msg):
         try:
             msg = await self.parser(msg)
-            logger.debug(f"[STREAMER] XADD {msg['name']} {msg['fields']} MAXLEN {self.redis_xadd_maxlen}")
+            logger.info(f"[STREAMER] XADD {msg['name']} {msg['fields']} MAXLEN {self.redis_xadd_maxlen}")
             await self.redis_client.xadd(**msg, maxlen=self.redis_xadd_maxlen, approximate=self.redis_xadd_approximate)
         except Exception as ex:
             logger.warning("[STREAMER] XADD Failed - {ex}")
