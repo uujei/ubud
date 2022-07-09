@@ -1,38 +1,45 @@
 import redis.asyncio as redis
 from fnmatch import fnmatch
 import json
+import asyncio
 
 
 class Database:
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 6379,
-        root_topic: str = "ubud",
+        redis_client: redis.Redis,
+        redis_topic: str = "ubud",
     ):
         # props
-        self.host = host
-        self.port = port
-        self.root_topic = root_topic
-
-        # settings
-        self._decode_responses = True
+        self.redis_client = redis_client
+        self.redis_topic = redis_topic
 
         # client and keys
-        self.client = redis.Redis(host=self.host, port=self.port, decode_responses=self._decode_responses)
-        self.keys = None
+        self._redis_keys_key = f"{self.redis_topic}/keys"
+
+        # trick async_init
+        self._initialized = False
 
     async def get(self, keys: list, drop_ts=True):
-        if self.keys is None:
-            await self.update_keys()
-        keys = self._ensure_list(keys)
-        keys = [k for key in keys for k in self.keys if fnmatch(k, key) and k != f"{self.root_topic}/keys"]
-        values = [json.loads(v) for v in await self.client.mget(keys)]
-        # return {k: v for k, v in zip(keys, values)}
-        return {k: {_k: _v for _k, _v in v.items() if not _k.startswith("_ts")} for k, v in zip(keys, values)}
+        # parse keys
+        registered_keys = {
+            k for k in await self.redis_client.smembers(self._redis_keys_key) if not k.endswith("/keys")
+        }
+        keys = [k for key in self._ensure_list(keys) for k in registered_keys if fnmatch(k, key)]
 
-    async def update_keys(self):
-        self.keys = await self.client.smembers(f"{self.root_topic}/keys")
+        # get items
+        items = await asyncio.gather(*[self._get(key, drop_ts=drop_ts) for key in keys])
+        return {k: v for k, v in [kv for kv in items if kv is not None]}
+
+    async def _get(self, key, drop_ts):
+        value = await self.redis_client.get(key)
+        if value is None:
+            print(f"[DB] Empty Value for '{key}'!")
+            return
+        value = json.loads(value)
+        if drop_ts:
+            value = {k: v for k, v in value.items() if not k.startswith("_ts")}
+        return (key, value)
 
     @staticmethod
     def _ensure_list(x):

@@ -81,12 +81,14 @@ class ForexApi:
         self.redis_xadd_maxlen = redis_xadd_maxlen
         self.redis_xadd_approximate = redis_xadd_approximate
 
-        self._redis_stream_name = f"{redis_topic}-stream/forex"
+        self._redis_stream_names_key = f"{self.redis_topic}-stream/keys"
+        self._redis_stream_name = f"{self.redis_topic}-stream/forex"
+        self._redis_field_key = f"{self.redis_topic}/forex/{self.codes}"
         self._path = "/forex/recent"
 
-    async def request(self, codes: str = "FRX.KRWUSD"):
+    async def request(self):
         url = f"{self.baseUrl}/{self.apiVersion}/{self._path.strip('/')}"
-        query = f"codes={codes}"
+        query = f"codes={self.codes}"
         url = "?".join([url, query])
         async with aiohttp.ClientSession() as client:
             async with client.request(method="get", url=url, headers=self.headers) as resp:
@@ -96,29 +98,40 @@ class ForexApi:
                 resp = await resp.json()
                 return resp
 
-    async def run(self, codes: str = "FRX.KRWUSD", interval: int = 30):
-        _subtopic = f"/forex/{codes}"
-        name = f"{self.redis_topic}-stream" + _subtopic
-        field_key = f"{self.redis_topic}" + _subtopic
-        while True:
-            records = await self.request(codes=codes)
-            logger.debug(f"[FOREX] get records: {records}")
-            for r in records:
-                try:
-                    msg = {
-                        "name": name,
-                        "fields": {"name": field_key, "value": self._parser(r)},
-                    }
-                    await self.redis_client.xadd(
-                        **msg,
-                        maxlen=self.redis_xadd_maxlen,
-                        approximate=self.redis_xadd_approximate,
-                    )
-                    logger.debug(f"[FOREX] Redis XADD {msg}")
-                except Exception as ex:
-                    logger.warning(ex)
+    async def run(self, interval: int = 30):
+        # register key
+        await self.redis_client.sadd(self._redis_stream_names_key, self._redis_stream_name)
+
+        try:
+            while True:
+                # get record
+                records = await self.request()
+                logger.debug(f"[FOREX] get records: {records}")
+
+                # stream
+                await asyncio.gather(*[self.sadd(r) for r in records])
+
+                # sleep
                 if interval is not None:
                     await asyncio.sleep(interval)
+        except Exception as ex:
+            logger.error(ex)
+            raise ex
+
+    async def sadd(self, record):
+        try:
+            msg = {
+                "name": self._redis_stream_name,
+                "fields": {"name": self._redis_field_key, "value": self._parser(record)},
+            }
+            await self.redis_client.xadd(
+                **msg,
+                maxlen=self.redis_xadd_maxlen,
+                approximate=self.redis_xadd_approximate,
+            )
+            logger.debug(f"[FOREX] XADD {msg['name']} {msg['fields']}")
+        except Exception as ex:
+            logger.warning(ex)
 
     @staticmethod
     def _parser(record):

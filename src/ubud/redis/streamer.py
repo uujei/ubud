@@ -51,21 +51,18 @@ class Streamer:
 
     async def __call__(self, messages):
         try:
-            parsed_messages = await asyncio.gather(*[self.parser(msg) for msg in messages])
-            await asyncio.gather(
-                *[
-                    self.redis_client.xadd(
-                        **msg,
-                        maxlen=self.redis_xadd_maxlen,
-                        approximate=self.redis_xadd_approximate,
-                    )
-                    for msg in parsed_messages
-                ]
-            )
-            logger.debug(f"[REDIS] Publish {parsed_messages}")
+            await asyncio.gather(*[self.xadd(msg) for msg in messages])
         except Exception as ex:
-            logger.warn(f"[REDIS] Publish Failed - {ex}")
+            logger.warn(ex)
             traceback.print_exc()
+
+    async def xadd(self, msg):
+        try:
+            msg = await self.parser(msg)
+            logger.debug(f"[STREAMER] XADD {msg['name']} {msg['fields']} MAXLEN {self.redis_xadd_maxlen}")
+            await self.redis_client.xadd(**msg, maxlen=self.redis_xadd_maxlen, approximate=self.redis_xadd_approximate)
+        except Exception as ex:
+            logger.warning("[STREAMER] XADD Failed - {ex}")
 
     async def parser(self, msg: dict):
         _subtopic = "/".join([msg.pop(_TOPIC) for _TOPIC in MQ_SUBTOPICS])
