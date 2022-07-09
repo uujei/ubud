@@ -6,10 +6,11 @@ from clutter.aws import get_secrets
 
 import redis.asyncio as redis
 
+from .api.forex import ForexApi
 from .redis.collector import Collector
 from .redis.streamer import Streamer
-from .api.forex import ForexApi
 from .websocket.bithumb import BithumbWebsocket
+from .websocket.ftx import FtxWebsocket
 from .websocket.upbit import UpbitWebsocket
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ DEFAULT_LOG_FORMAT = "%(asctime)s:%(levelname)s:%(message)s"
 WEBSOCKET = {
     "upbit": UpbitWebsocket,
     "bithumb": BithumbWebsocket,
+    "ftx": FtxWebsocket,
 }
 
 
@@ -48,6 +50,10 @@ def ubud():
 @click.option("--buffer-len", default=100)
 @click.option("--log-level", default=logging.INFO, type=LogLevel())
 def start_stream(markets, channel, symbols, currencies, topic, host, port, expire_sec, buffer_len, log_level):
+    """
+    [NOTE]
+    FTX의 Currency 강제함
+    """
     import asyncio
 
     # set log level

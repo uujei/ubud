@@ -5,7 +5,7 @@ import logging
 import sys
 import time
 from typing import Callable, DefaultDict, Deque, Dict, List, Optional, Tuple
-
+from datetime import datetime
 import websockets
 
 from ..const import (
@@ -31,6 +31,8 @@ from ..const import (
     TS_WS_RECV,
     TS_WS_SEND,
     ts_to_strdt,
+    UTC,
+    KST,
 )
 from .base import BaseWebsocket
 
@@ -52,6 +54,8 @@ AVAILABLE_CURRENCIES = ["AUD", "BRZ", "BTC", "EUR", "JPY", "TRYB", "USD", "USDT"
 # Market Helpers
 ################################################################
 def _concat_symbol_currency(symbol, currency):
+    if "-" in symbol or "/" in symbol:
+        return symbol.upper()
     if currency.startswith("-"):
         return f"{symbol}{currency}".upper()
     return f"{symbol}/{currency}".upper()
@@ -67,19 +71,79 @@ def _split_symbol(symbol):
     return {SYMBOL: symbol, CURRENCY: "unknown"}
 
 
+def _buy_sell(x):
+    if x == "buy":
+        return BID
+    if x == "sell":
+        return ASK
+    return x
+
+
 ################################################################
 # Market Parsers
 ################################################################
 # TRADE
 async def trade_parser(body, ts_ws_recv=None):
-    logger.info(body)
-    return body
+    messages = []
+    try:
+        if body["type"] == "update":
+            symbol_currency = _split_symbol(body["market"])
+            base_msg = {
+                MARKET: THIS_MARKET,
+                API_CATEGORY: THIS_API_CATEGORY,
+                CHANNEL: TRADE,
+                **symbol_currency,
+            }
+            data = body["data"]
+            for record in data:
+                msg = {
+                    DATETIME: record["time"],
+                    **base_msg,
+                    TRADE_SID: record["id"],
+                    ORDERTYPE: _buy_sell(record["side"]),
+                    PRICE: record["price"],
+                    QUANTITY: record["size"],
+                    TS_WS_SEND: datetime.fromisoformat(record["time"]).timestamp(),
+                    TS_WS_RECV: ts_ws_recv,
+                    "_side": record["side"],
+                    "_liquidation": record["liquidation"],
+                }
+                messages += [msg]
+                logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+    except Exception as ex:
+        logger.warning(ex)
+    return messages
 
 
 # ORDERBOOK
 async def orderbook_parser(body, ts_ws_recv=None):
-    logger.info(body)
-    return body
+    messages = []
+    try:
+        if body["type"] == "update":
+            symbol_currency = _split_symbol(body["market"])
+            data = body["data"]
+            base_msg = {
+                DATETIME: datetime.fromtimestamp(data["time"]).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f"),
+                MARKET: THIS_MARKET,
+                API_CATEGORY: THIS_API_CATEGORY,
+                CHANNEL: ORDERBOOK,
+                **symbol_currency,
+            }
+            for _type, _TYPE in [("asks", ASK), ("bids", BID)]:
+                for price, quantity in data[_type]:
+                    msg = {
+                        **base_msg,
+                        ORDERTYPE: _TYPE,
+                        PRICE: price,
+                        QUANTITY: quantity,
+                        TS_WS_SEND: data["time"],
+                        TS_WS_RECV: ts_ws_recv,
+                    }
+                    messages += [msg]
+                    logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+    except Exception as ex:
+        logger.warning(ex)
+    return messages
 
 
 # PARSER
@@ -100,7 +164,7 @@ class FtxWebsocket(BaseWebsocket):
         self,
         channel: str,
         symbols: list,
-        currencies: list = ["USD"],
+        currencies: list = ["USD", "-PERP"],
         handler: Callable = None,
         apiKey: str = None,
         apiSecret: str = None,
@@ -147,8 +211,8 @@ if __name__ == "__main__":
     log_handler = logging.StreamHandler()
     logger.addHandler(log_handler)
 
-    apiKey = os.getenv("FTX_KEY")
-    apiSecret = os.getenv("FTX_SECRET")
+    apiKey = os.environ["FTX_KEY"]
+    apiSecret = os.environ["FTX_SECRET"]
 
     CHANNELS = ["orderbook", "trade"]
 

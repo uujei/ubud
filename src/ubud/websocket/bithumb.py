@@ -51,6 +51,8 @@ CHANNEL_PARAMS = {
 # Market Helpers
 ################################################################
 def _concat_symbol_currency(symbol, currency):
+    if "_" in symbol:
+        return symbol.upper()
     return f"{symbol}_{currency}".upper()
 
 
@@ -82,9 +84,9 @@ async def trade_parser(body, ts_ws_recv=None):
                 trade_datetime = r["contDtm"].replace(" ", "T") + "+0900"
                 ts_market = datetime.strptime(trade_datetime, DT_FMT_FLOAT).timestamp()
                 msg = {
+                    DATETIME: trade_datetime,
                     **base_msg,
                     **symbol_currency,
-                    TRADE_DATETIME: trade_datetime,
                     ORDERTYPE: ASK if r["buySellGb"] == "1" else BID,
                     PRICE: float(r["contPrice"]),
                     QUANTITY: float(r["contQty"]),
@@ -102,11 +104,10 @@ async def trade_parser(body, ts_ws_recv=None):
 
 # [ORDERBOOK]
 async def orderbook_parser(body, ts_ws_recv=None):
-    messages = []
-
-    # parse and pub
-    if "content" in body.keys():
-        try:
+    try:
+        # parse and pub
+        if "content" in body.keys():
+            messages = []
             content = body["content"]
             ts_ws_send = int(content["datetime"]) / 1e6
             base_msg = {
@@ -130,8 +131,8 @@ async def orderbook_parser(body, ts_ws_recv=None):
                 messages += [msg]
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
 
-        except Exception as ex:
-            logger.warn(f"[{__name__}] {ex}")
+    except Exception as ex:
+        logger.warn(f"[{__name__}] {ex}")
 
     return messages
 

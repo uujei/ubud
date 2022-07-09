@@ -4,6 +4,7 @@ import pendulum
 
 __all__ = [
     "KST",
+    "UTC",
     "TICKER",
     "TRADE",
     "ORDERBOOK",
@@ -35,6 +36,7 @@ __all__ = [
 ]
 
 KST = pendulum.timezone("Asia/Seoul")
+UTC = pendulum.timezone("UTC")
 
 # CHANNEL PARAMS (TYPE PARAMS)
 TICKER = "ticker"

@@ -50,6 +50,8 @@ CHANNEL_PARAMS = {
 # Market Helpers
 ################################################################
 def _concat_symbol_currency(symbol, currency):
+    if "-" in symbol:
+        return symbol.upper()
     return f"{currency}-{symbol}".upper()
 
 
@@ -71,13 +73,12 @@ async def trade_parser(body, ts_ws_recv=None):
         symbol_currency = _split_symbol(body["cd"])
         ts_ws_send = int(body["tms"]) / 1e3
         msg = {
-            DATETIME: ts_to_strdt(ts_ws_send),
+            DATETIME: ts_to_strdt(int(body["ttms"]) / 1e3),
             MARKET: THIS_MARKET,
             API_CATEGORY: THIS_API_CATEGORY,
             CHANNEL: TRADE,
             **symbol_currency,
             TRADE_SID: body["sid"],
-            TRADE_DATETIME: ts_to_strdt(int(body["ttms"]) / 1e3),
             ORDERTYPE: body["ab"].lower(),
             PRICE: body["tp"],
             QUANTITY: body["tv"],
@@ -94,44 +95,33 @@ async def trade_parser(body, ts_ws_recv=None):
 # ORDERBOOK
 async def orderbook_parser(body, ts_ws_recv=None):
     messages = []
-    # parse
-    if "obu" in body.keys():
-        # base message
-        symbol_currency = _split_symbol(body["cd"])
-        ts_ws_send = int(body["tms"]) / 1e3
-        base_msg = {
-            DATETIME: ts_to_strdt(ts_ws_send),
-            MARKET: THIS_MARKET,
-            API_CATEGORY: THIS_API_CATEGORY,
-            CHANNEL: ORDERBOOK,
-            **symbol_currency,
-        }
-        # parse and pub
-        try:
+    try:
+        # parse
+        if "obu" in body.keys():
+            # base message
+            symbol_currency = _split_symbol(body["cd"])
+            ts_ws_send = int(body["tms"]) / 1e3
+            base_msg = {
+                DATETIME: ts_to_strdt(ts_ws_send),
+                MARKET: THIS_MARKET,
+                API_CATEGORY: THIS_API_CATEGORY,
+                CHANNEL: ORDERBOOK,
+                **symbol_currency,
+            }
+            # parse and pub
             for r in body["obu"]:
                 # ASK
-                msg = {
-                    **base_msg,
-                    ORDERTYPE: ASK,
-                    PRICE: r["ap"],
-                    QUANTITY: r["as"],
-                    TS_WS_SEND: ts_ws_send,
-                    TS_WS_RECV: ts_ws_recv,
-                }
-                messages += [msg]
-                logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-
-                # BID
-                msg = {
-                    **base_msg,
-                    ORDERTYPE: BID,
-                    PRICE: r["bp"],
-                    QUANTITY: r["bs"],
-                    TS_WS_SEND: ts_ws_send,
-                    TS_WS_RECV: ts_ws_recv,
-                }
-                messages += [msg]
-                logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+                for _p, _q, _TYPE in [("ap", "as", ASK), ("bp", "bs", BID)]:
+                    msg = {
+                        **base_msg,
+                        ORDERTYPE: _TYPE,
+                        PRICE: r[_p],
+                        QUANTITY: r[_q],
+                        TS_WS_SEND: ts_ws_send,
+                        TS_WS_RECV: ts_ws_recv,
+                    }
+                    messages += [msg]
+                    logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
 
             # TOTAL_ASK_SIZE
             base_msg[CHANNEL] = f"{base_msg[CHANNEL]}_total_qty"
@@ -142,8 +132,8 @@ async def orderbook_parser(body, ts_ws_recv=None):
             # TOTAL_BID_SIZE
             msg = {**base_msg, ORDERTYPE: BID, QUANTITY: body["tbs"]}
             logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-        except Exception as ex:
-            logger.warn(f"[{__name__}] {ex}")
+    except Exception as ex:
+        logger.warn(f"[{__name__}] {ex}")
     return messages
 
 
