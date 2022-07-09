@@ -1,8 +1,14 @@
 import abc
-from typing import List, Callable
-import time
-import aiohttp
 import asyncio
+import logging
+from typing import Callable, List
+
+import aiohttp
+import redis.asyncio as redis
+
+from ..const import KST
+
+logger = logging.getLogger(__name__)
 
 ################################################################
 # Base
@@ -12,11 +18,15 @@ class BaseApi(abc.ABC):
         self,
         apiKey: str = None,
         apiSecret: str = None,
-        handlers: List[Callable] = [],
+        redis_client: redis.Redis = None,
+        redis_topic: str = "ubud",
+        redis_expire_sec: int = 120,
     ):
         self.apiKey = apiKey
         self.apiSecret = apiSecret
-        self.handlers = handlers if isinstance(handlers, list) else [handlers]
+        self.redis_client = redis_client
+        self.redis_topic = redis_topic
+        self.redis_expire_sec = redis_expire_sec
 
         self._private_ready = all([c is not None for c in [apiKey, apiSecret]])
         self._remains = None
@@ -32,16 +42,10 @@ class BaseApi(abc.ABC):
                     raise ReferenceError(f"status code: {resp.status}, message: {_text}")
                 _handlers = [
                     self._limit_handler(resp.headers),
-                    *[handler(resp) for handler in self.handlers],
                     self._default_handler(resp),
                 ]
-                results = asyncio.gather(*_handlers)
-
+                results = await asyncio.gather(*_handlers)
                 return results[-1]
-
-    @abc.abstractmethod
-    async def request(self, route, **kwargs):
-        pass
 
     @abc.abstractstaticmethod
     async def _limit_handler(resp):
@@ -49,16 +53,4 @@ class BaseApi(abc.ABC):
 
     @abc.abstractmethod
     def _gen_request_args(self, route, **kwargs):
-        pass
-
-    @abc.abstractmethod
-    def _gen_header(self, route, **kwargs):
-        pass
-
-    @abc.abstractstaticmethod
-    def _gen_api_sign(route, nonce, apiKey, apiSecret, **kwargs):
-        pass
-
-    @abc.abstractmethod
-    def _gen_api_nonce():
         pass

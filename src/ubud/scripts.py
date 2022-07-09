@@ -110,6 +110,32 @@ def stream_websocket(markets, quotes, symbols, currency, broker, topic, client_i
 
 
 ################################################################
+# STREAM FOREX API
+################################################################
+@ubud.command()
+@click.option("-c", "--codes", default="FRX.KRWUSD")
+@click.option("-t", "--topic", type=str, default="ubud")
+@click.option("-i", "--interval", type=int, default=30)
+@click.option("--log-level", default=logging.INFO, type=LogLevel())
+@click.option("--trace", is_flag=True)
+def stream_forex(codes, topic, interval, log_level, trace):
+    import asyncio
+    import redis.asyncio as redis
+    from .api.forex import ForexApi
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    redis_client = redis.Redis()
+    api = ForexApi(codes=codes, redis_client=redis_client, redis_topic=topic)
+
+    asyncio.run(api.run(interval=interval))
+
+
+################################################################
 # QUOTATION STREAM
 ################################################################
 @ubud.command()

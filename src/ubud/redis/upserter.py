@@ -75,7 +75,6 @@ class Upserter:
         try:
             outputs = await asyncio.gather(*[parser(self.root_topic, msg) for msg in messages])
             await asyncio.gather(*[self.client.set(**o, ex=self.expire_sec) for o in outputs])
-            print(f"OUTPUTS!!! {outputs}")
             await self.update_keys([o["name"] for o in outputs])
             logger.debug(f"[REDIS] Update {outputs}")
         except Exception as ex:
