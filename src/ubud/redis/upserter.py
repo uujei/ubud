@@ -16,7 +16,7 @@ from ..const import (
     MQ_SUBTOPICS,
     ORDERBOOK,
     ORDERTYPE,
-    QUOTE,
+    CHANNEL,
     SYMBOL,
     TICKER,
     TRADE,

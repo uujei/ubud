@@ -4,7 +4,7 @@ from time import time
 import json
 import parse
 from clutter.aws import get_secrets
-from ..const import TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV, QUOTE, MQ_SUBTOPICS
+from ..const import TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV, CHANNEL, MQ_SUBTOPICS
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import ASYNCHRONOUS, SYNCHRONOUS
 
@@ -16,7 +16,7 @@ _compile = "/".join(["{topic}/{api_category}", *[f"{{{t}}}" for t in MQ_SUBTOPIC
 print(_compile)
 Parser = parse.compile(_compile)
 BUCKET = "api_category"
-MEASUREMENT = QUOTE
+MEASUREMENT = CHANNEL
 TAGS = ["topic", "symbol", "market", "currency", "orderType"]
 DATETIME_PRIORITY = [TS_MARKET, TS_WS_SEND, TS_WS_RECV, TS_MQ_SEND, TS_MQ_RECV]
 

@@ -7,10 +7,10 @@ __all__ = [
     "TICKER",
     "TRADE",
     "ORDERBOOK",
-    "QUOTE_PARAMS",
+    "CHANNEL_PARAMS",
     "DATETIME",
     "MARKET",
-    "QUOTE",
+    "CHANNEL",
     "SYMBOL",
     "SYMBOLS",
     "CURRENCY",
@@ -36,12 +36,12 @@ __all__ = [
 
 KST = pendulum.timezone("Asia/Seoul")
 
-# QUOTE PARAMS (TYPE PARAMS)
+# CHANNEL PARAMS (TYPE PARAMS)
 TICKER = "ticker"
 TRADE = "trade"
 ORDERBOOK = "orderbook"
 
-QUOTE_PARAMS = {
+CHANNEL_PARAMS = {
     "upbit": {
         TICKER: "ticker",
         TRADE: "trade",
@@ -58,7 +58,7 @@ QUOTE_PARAMS = {
 API_CATEGORY = "api_category"
 DATETIME = "datetime"
 MARKET = "market"
-QUOTE = "type"
+CHANNEL = "type"
 SYMBOL = "symbol"
 SYMBOLS = "symbols"
 CURRENCY = "currency"
@@ -85,7 +85,7 @@ TS_MQ_SEND = "_ts_mq_send"
 TS_MQ_RECV = "_ts_mq_recv"
 
 # MQ SUBTOPIC RULES
-MQ_SUBTOPICS = [API_CATEGORY, QUOTE, MARKET, SYMBOL, CURRENCY, ORDERTYPE]
+MQ_SUBTOPICS = [API_CATEGORY, CHANNEL, MARKET, SYMBOL, CURRENCY, ORDERTYPE]
 
 # DATETIME FORMAT
 DT_FMT = "%Y-%m-%dT%H:%M:%S%z"

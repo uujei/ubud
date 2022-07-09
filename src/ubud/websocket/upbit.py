@@ -19,7 +19,7 @@ from ..const import (
     ORDERTYPE,
     PRICE,
     QUANTITY,
-    QUOTE,
+    CHANNEL,
     SYMBOL,
     TICKER,
     TRADE,
@@ -39,8 +39,7 @@ logger = logging.getLogger(__name__)
 ################################################################
 THIS_MARKET = "upbit"
 THIS_API_CATEGORY = "quotation"
-URL = "wss://api.upbit.com/websocket/v1"
-QUOTE_PARAMS = {
+CHANNEL_PARAMS = {
     TICKER: "ticker",
     TRADE: "trade",
     ORDERBOOK: "orderbook",
@@ -54,7 +53,7 @@ def _concat_symbol_currency(symbol, currency):
     return f"{currency}-{symbol}".upper()
 
 
-async def _split_symbol(symbol):
+def _split_symbol(symbol):
     DELIM = "-"
     if DELIM in symbol:
         cur, symbol = symbol.split(DELIM)
@@ -69,13 +68,13 @@ async def _split_symbol(symbol):
 async def trade_parser(body, ts_ws_recv=None):
     # load body
     try:
-        symbol_currency = await _split_symbol(body["cd"])
+        symbol_currency = _split_symbol(body["cd"])
         ts_ws_send = int(body["tms"]) / 1e3
         msg = {
             DATETIME: ts_to_strdt(ts_ws_send),
             MARKET: THIS_MARKET,
             API_CATEGORY: THIS_API_CATEGORY,
-            QUOTE: TRADE,
+            CHANNEL: TRADE,
             **symbol_currency,
             TRADE_SID: body["sid"],
             TRADE_DATETIME: ts_to_strdt(int(body["ttms"]) / 1e3),
@@ -98,13 +97,13 @@ async def orderbook_parser(body, ts_ws_recv=None):
     # parse
     if "obu" in body.keys():
         # base message
-        symbol_currency = await _split_symbol(body["cd"])
+        symbol_currency = _split_symbol(body["cd"])
         ts_ws_send = int(body["tms"]) / 1e3
         base_msg = {
             DATETIME: ts_to_strdt(ts_ws_send),
             MARKET: THIS_MARKET,
             API_CATEGORY: THIS_API_CATEGORY,
-            QUOTE: ORDERBOOK,
+            CHANNEL: ORDERBOOK,
             **symbol_currency,
         }
         # parse and pub
@@ -135,7 +134,7 @@ async def orderbook_parser(body, ts_ws_recv=None):
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
 
             # TOTAL_ASK_SIZE
-            base_msg[QUOTE] = f"{base_msg[QUOTE]}_total_qty"
+            base_msg[CHANNEL] = f"{base_msg[CHANNEL]}_total_qty"
             msg = {**base_msg, ORDERTYPE: ASK, QUANTITY: body["tas"]}
             logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
             messages += [msg]
@@ -159,31 +158,38 @@ PARSER = {
 # UpbitWebsocket
 ################################################################
 class UpbitWebsocket(BaseWebsocket):
+    ws_url = "wss://api.upbit.com/websocket/v1"
+    ws_conf = {}
+
     # init
     def __init__(
         self,
-        quote: str,
+        channel: str,
         symbols: list,
-        currency: str = "KRW",
+        currencies: list = ["KRW"],
         handler: Callable = None,
+        apiKey: str = None,
+        apiSecret: str = None,
     ):
-        assert quote in QUOTE_PARAMS, f"[ERROR] unknown quote '{quote}'!"
-        self.quote = QUOTE_PARAMS[quote]
+        # dummy properties for api consistency
+        self.apiKey = apiKey
+        self.apiSecret = apiSecret
+
+        assert channel in CHANNEL_PARAMS, f"[ERROR] unknown channel '{channel}'!"
+        self.channel = CHANNEL_PARAMS[channel]
         assert isinstance(symbols, (list, tuple)), "[ERROR] 'symbols' should be a list!"
-        self.symbols = [_concat_symbol_currency(s, currency) for s in symbols]
-        self.ws_url = URL
-        self.ws_conf = {}
-        self.ws_params = self._generate_ws_params(self.quote, self.symbols)
-        self.request = self._request
-        self.parser = PARSER[quote]
+        assert isinstance(currencies, (list, tuple)), "[ERROR] 'currencies' should be a list!"
+        self.symbols = [_concat_symbol_currency(s, c) for s in symbols for c in currencies]
+        self.ws_params = self._generate_ws_params(self.channel, self.symbols)
+        self.parser = PARSER[channel]
         self.handler = handler
 
     @staticmethod
-    def _generate_ws_params(quote, symbols):
+    def _generate_ws_params(channel, symbols):
         return [
-            {"ticket": f"{quote}-{'|'.join(sorted(symbols))}".lower()},
+            {"ticket": f"{channel}-{'|'.join(sorted(symbols))}".lower()},
             {
-                "type": QUOTE_PARAMS[quote],
+                "type": CHANNEL_PARAMS[channel],
                 "codes": symbols,
                 "isOnlyRealtime": True,
             },
@@ -206,6 +212,10 @@ if __name__ == "__main__":
     log_handler = logging.StreamHandler()
     logger.addHandler(log_handler)
 
-    quote = sys.argv[1] if len(sys.argv) > 1 else "orderbook"
-    ws = UpbitWebsocket(quote="orderbook", symbols=["BTC", "ETH", "WAVES"])
-    ws.start()
+    CHANNELS = ["orderbook", "trade"]
+
+    async def tasks():
+        coros = [UpbitWebsocket(channel=c, symbols=["BTC", "ETH", "WAVES"]).run() for c in CHANNELS]
+        await asyncio.gather(*coros)
+
+    asyncio.run(tasks())

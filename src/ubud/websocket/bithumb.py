@@ -20,7 +20,7 @@ from ..const import (
     ORDERTYPE,
     PRICE,
     QUANTITY,
-    QUOTE,
+    CHANNEL,
     SYMBOL,
     TICKER,
     TRADE,
@@ -40,8 +40,7 @@ logger = logging.getLogger(__name__)
 ################################################################
 THIS_MARKET = "bithumb"
 THIS_API_CATEGORY = "quotation"
-URL = "wss://pubwss.bithumb.com/pub/ws"
-QUOTE_PARAMS = {
+CHANNEL_PARAMS = {
     TICKER: "ticker",
     TRADE: "transaction",
     ORDERBOOK: "orderbookdepth",
@@ -52,16 +51,10 @@ QUOTE_PARAMS = {
 # Market Helpers
 ################################################################
 def _concat_symbol_currency(symbol, currency):
-    """Override Required
-    Example is for BITHUMB
-    """
     return f"{symbol}_{currency}".upper()
 
 
-async def _split_symbol(symbol):
-    """Override Required
-    Example is for BITHUMB
-    """
+def _split_symbol(symbol):
     if "_" in symbol:
         symbol, cur = symbol.split("_")
         return {SYMBOL: symbol, CURRENCY: cur}
@@ -82,10 +75,10 @@ async def trade_parser(body, ts_ws_recv=None):
             base_msg = {
                 MARKET: THIS_MARKET,
                 API_CATEGORY: THIS_API_CATEGORY,
-                QUOTE: TRADE,
+                CHANNEL: TRADE,
             }
             for r in content["list"]:
-                symbol_currency = await _split_symbol(r["symbol"])
+                symbol_currency = _split_symbol(r["symbol"])
                 trade_datetime = r["contDtm"].replace(" ", "T") + "+0900"
                 ts_market = datetime.strptime(trade_datetime, DT_FMT_FLOAT).timestamp()
                 msg = {
@@ -120,10 +113,10 @@ async def orderbook_parser(body, ts_ws_recv=None):
                 DATETIME: ts_to_strdt(ts_ws_send),
                 MARKET: THIS_MARKET,
                 API_CATEGORY: THIS_API_CATEGORY,
-                QUOTE: ORDERBOOK,
+                CHANNEL: ORDERBOOK,
             }
             for r in content["list"]:
-                symbol_currency = await _split_symbol(r["symbol"])
+                symbol_currency = _split_symbol(r["symbol"])
                 msg = {
                     **base_msg,
                     **symbol_currency,
@@ -154,39 +147,38 @@ PARSER = {
 # BithumbWebsocket
 ################################################################
 class BithumbWebsocket(BaseWebsocket):
+    ws_url = "wss://pubwss.bithumb.com/pub/ws"
+    ws_conf = {"ping_interval": None}
+
     # init
     def __init__(
         self,
-        quote: str,
+        channel: str,
         symbols: list,
-        currency: str = "KRW",
+        currencies: list = ["KRW"],
         handler: Callable = None,
+        apiKey: str = None,
+        apiSecret: str = None,
     ):
-        assert quote in QUOTE_PARAMS, f"[ERROR] unknown quote '{quote}'!"
-        self.quote = QUOTE_PARAMS[quote]
+        # dummy properties for api consistency
+        self.apiKey = apiKey
+        self.apiSecret = apiSecret
+
+        assert channel in CHANNEL_PARAMS, f"[ERROR] unknown channel '{channel}'!"
+        self.channel = CHANNEL_PARAMS[channel]
         assert isinstance(symbols, (list, tuple)), "[ERROR] 'symbols' should be a list!"
-        self.symbols = [_concat_symbol_currency(s, currency) for s in symbols]
-        self.ws_url = URL
-        self.ws_conf = {
-            "ping_interval": None,
-        }
-        self.ws_params = self._generate_ws_params(self.quote, self.symbols)
-        self.request = self._request
-        self.parser = PARSER[quote]
+        assert isinstance(currencies, (list, tuple)), "[ERROR] 'currencies' should be a list!"
+        self.symbols = [_concat_symbol_currency(s, c) for s in symbols for c in currencies]
+        self.ws_params = self._generate_ws_params(self.channel, self.symbols)
+        self.parser = PARSER[channel]
         self.handler = handler
 
     @staticmethod
-    def _generate_ws_params(quote, symbols):
-        """Override Required
-        Example is for BITHUMB
-        """
-        return {"type": quote, "symbols": symbols}
+    def _generate_ws_params(channel, symbols):
+        return {"type": channel, "symbols": symbols}
 
     @staticmethod
     async def _request(ws, params):
-        """Override Required
-        Example is for BITHUMB
-        """
         msg = await ws.recv()
         msg = json.loads(msg)
         if msg["status"] != "0000":
@@ -210,6 +202,10 @@ if __name__ == "__main__":
     log_handler = logging.StreamHandler()
     logger.addHandler(log_handler)
 
-    quote = sys.argv[1] if len(sys.argv) > 1 else "orderbook"
-    ws = BithumbWebsocket(quote="orderbook", symbols=["BTC", "ETH", "WAVES"])
-    ws.start()
+    CHANNELS = ["orderbook", "trade"]
+
+    async def tasks():
+        coros = [BithumbWebsocket(channel=c, symbols=["BTC", "ETH", "WAVES"]).run() for c in CHANNELS]
+        await asyncio.gather(*coros)
+
+    asyncio.run(tasks())
