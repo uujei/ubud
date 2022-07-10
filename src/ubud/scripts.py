@@ -6,16 +6,13 @@ import click
 import dotenv
 import yaml
 from click_loglevel import LogLevel
-from clutter.aws import get_secrets
 
 import redis.asyncio as redis
 
 from .api.forex import ForexApi
-from .redis.collector import Collector
-from .redis.streamer import Streamer
-from .websocket.bithumb import BithumbWebsocket
-from .websocket.ftx import FtxWebsocket
-from .websocket.upbit import UpbitWebsocket
+from .api.unified import BithumbBalanceUpdater, FtxBalanceUpdater, UpbitBalanceUpdater
+from .redis import Collector, Streamer
+from .websocket import BithumbWebsocket, FtxWebsocket, UpbitWebsocket
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -28,6 +25,12 @@ WEBSOCKET = {
     "upbit": UpbitWebsocket,
     "bithumb": BithumbWebsocket,
     "ftx": FtxWebsocket,
+}
+
+BALANCE_UPDATER = {
+    "upbit": UpbitBalanceUpdater,
+    "bithumb": BithumbBalanceUpdater,
+    "ftx": FtxBalanceUpdater,
 }
 
 
@@ -81,12 +84,6 @@ def start_stream(conf, log_level):
 
     websocket_conf = conf["websocket"]
 
-    # # logging
-    # logger.info(f"[UBUD] markets   : {markets}")
-    # logger.info(f"[UBUD] channel   : {channel}")
-    # logger.info(f"[UBUD] symbols   : {symbols}")
-    # logger.info(f"[UBUD] currencies: {currencies}")
-
     ################################################################
     # TASK SETTINGS
     ################################################################
@@ -115,9 +112,20 @@ def start_stream(conf, log_level):
                 ]
 
         # add http streamer task - 1. ForexApi
-        coroutines += [
-            ForexApi(redis_client=redis_client, redis_topic=topic, redis_xadd_maxlen=redis_maxlen).run(interval=30)
-        ]
+        coroutines += [ForexApi(redis_client=redis_client, redis_topic=topic, redis_xadd_maxlen=redis_maxlen).run()]
+
+        # add balance updater
+        for market, _ in websocket_conf.items():
+            coroutines += [
+                BALANCE_UPDATER[market](
+                    apiKey=CREDS[market]["apiKey"],
+                    apiSecret=CREDS[market]["apiSecret"],
+                    symbols=args["symbol"],
+                    interval=0.6,
+                    redis_client=redis_client,
+                    redis_topic="ubud",
+                ).run()
+            ]
 
         # run
         await asyncio.gather(*coroutines)

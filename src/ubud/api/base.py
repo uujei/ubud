@@ -18,22 +18,15 @@ class BaseApi(abc.ABC):
         self,
         apiKey: str = None,
         apiSecret: str = None,
-        redis_client: redis.Redis = None,
-        redis_topic: str = "ubud",
-        redis_expire_sec: int = 120,
     ):
         self.apiKey = apiKey
         self.apiSecret = apiSecret
-        self.redis_client = redis_client
-        self.redis_topic = redis_topic
-        self.redis_expire_sec = redis_expire_sec
 
-        self._private_ready = all([c is not None for c in [apiKey, apiSecret]])
         self._remains = None
 
     async def _request(self, method, route, **kwargs):
         # get request args
-        args = self._gen_request_args(route, **kwargs)
+        args = self._gen_request_args(method, route, **kwargs)
 
         async with aiohttp.ClientSession() as client:
             async with client.request(method=method, **args) as resp:
@@ -47,10 +40,21 @@ class BaseApi(abc.ABC):
                 results = await asyncio.gather(*_handlers)
                 return results[-1]
 
+    @staticmethod
+    def _join_url(*args):
+        url = []
+        for arg in args:
+            url += [arg.strip("/")]
+        return "/".join(url)
+
+    @staticmethod
+    def _get_route(x):
+        return "/" + x.split("://", 1)[-1].split("/", 1)[-1]
+
     @abc.abstractstaticmethod
     async def _limit_handler(resp):
         pass
 
     @abc.abstractmethod
-    def _gen_request_args(self, route, **kwargs):
+    def _gen_request_args(self, method, route, **kwargs):
         pass

@@ -69,15 +69,18 @@ class ForexApi:
     def __init__(
         self,
         codes: str = "FRX.KRWUSD",
+        interval: float = 10.0,
         redis_client: redis.Redis = None,
         redis_topic: str = None,
-        redis_xadd_maxlen: bool = 10,
+        redis_expire_sec: int = 10,
+        redis_xadd_maxlen: bool = 100,
         redis_xadd_approximate: bool = False,
     ):
         self.codes = codes
+        self.interval = interval
         self.redis_client = redis_client
         self.redis_topic = redis_topic
-        self.redis_expire_sec = 120
+        self.redis_expire_sec = redis_expire_sec
         self.redis_xadd_maxlen = redis_xadd_maxlen
         self.redis_xadd_approximate = redis_xadd_approximate
 
@@ -98,7 +101,7 @@ class ForexApi:
                 resp = await resp.json()
                 return resp
 
-    async def run(self, interval: int = 30):
+    async def run(self):
         # register key
         await self.redis_client.sadd(self._redis_stream_names_key, self._redis_stream_name)
 
@@ -109,16 +112,16 @@ class ForexApi:
                 logger.debug(f"[FOREX] get records: {records}")
 
                 # stream
-                await asyncio.gather(*[self.sadd(r) for r in records])
+                await asyncio.gather(*[self.xadd(r) for r in records])
 
                 # sleep
-                if interval is not None:
-                    await asyncio.sleep(interval)
+                if self.interval is not None:
+                    await asyncio.sleep(self.interval)
         except Exception as ex:
             logger.error(ex)
             raise ex
 
-    async def sadd(self, record):
+    async def xadd(self, record):
         try:
             msg = {
                 "name": self._redis_stream_name,
@@ -153,11 +156,9 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.DEBUG)
 
-    redis_client = redis.Redis()
-    api = ForexApi(redis_client=redis_client, redis_topic="ubud")
+    interval = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
 
-    if len(sys.argv) > 1:
-        interval = int(sys.argv[1])
-    else:
-        interval = None
-    asyncio.run(api.run(interval=interval))
+    redis_client = redis.Redis()
+    api = ForexApi(interval=interval, redis_client=redis_client, redis_topic="ubud")
+
+    asyncio.run(api.run())

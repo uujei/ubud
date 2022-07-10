@@ -7,148 +7,12 @@ import time
 from typing import Callable, List
 from urllib.parse import urlencode, urljoin
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Extra
 
 from .base import BaseApi
+from .bithumb_api import BITHUMB_API
 
 logger = logging.getLogger(__name__)
-
-PATH_PARAMS_PUBLIC = ["order_currency", "payment_currency"]
-DELIM_PATH_PARAMS = "_"
-
-
-################################
-# Models (Validators)
-################################
-class InfoAccount(BaseModel):
-    method: str = "post"
-    route: str = "/info/account"
-    order_currency: str
-    payment_currency: str = None
-
-
-class InfoBalance(BaseModel):
-    method: str = "post"
-    route: str = "/info/balance"
-    order_currency: str
-    payment_currency: str = None
-
-
-class InfoWalletAddress(BaseModel):
-    method: str = "post"
-    route: str = "/info/wallet_address"
-    currency: str = "BTC"
-
-
-class InfoTicker(BaseModel):
-    method: str = "post"
-    route: str = "/info/ticker"
-    order_currency: str
-    payment_currency: str = None
-
-
-class InfoOrders(BaseModel):
-    method: str = "post"
-    route: str = "/info/orders"
-    order_currency: str
-    order_id: str = None
-    payment_currency: str = None
-    type: str = None
-    count: int = 100
-    after: str = None
-
-
-class InfoOrderDetail(BaseModel):
-    method: str = "post"
-    order_currency: str
-    order_id: str
-    payment_currency: str = None
-
-
-class InfoUserTransactions(BaseModel):
-    method: str = "post"
-    route: str = "/info/user_transactions"
-    order_currency: str
-    payment_currency: str
-    offset: int = 0
-    count: int = 20
-    searchGb: str = None
-
-
-class TradePlace(BaseModel):
-    method: str = "post"
-    route: str = "/trade/place"
-    order_currency: str
-    payment_currency: str
-    units: float
-    price: int
-    type: str
-
-
-class TradeMarketBuy(BaseModel):
-    method: str = "post"
-    route: str = "/trade/market_buy"
-    order_currency: str
-    payment_currency: str
-    units: float
-
-
-class TradeMarketSell(BaseModel):
-    method: str = "post"
-    route: str = "/trade/market_sell"
-    order_currency: str
-    payment_currency: str
-    units: float
-
-
-class TradeStopLimit(BaseModel):
-    method: str = "post"
-    route: str = "/trade/stop_limit"
-    order_currency: str
-    payment_currency: str
-    units: float
-    watch_price: float
-    price: float
-    type: str
-
-
-class TradeCancel(BaseModel):
-    method: str = "post"
-    route: str = "/trade/cancel"
-    order_currency: str
-    order_id: str
-    payment_currency: str
-    type: str
-
-
-class TradeBtcWithdrawal(BaseModel):
-    method: str = "post"
-    route: str = "/trade/btc_withdrawal"
-    units: float
-    address: str
-    currency: str
-    exchange_name: str
-    cust_type_cd: str
-    ko_name: str
-    en_name: str
-
-
-BITHUMB_API = {
-    "info/account": InfoAccount,
-    "info/balance": InfoBalance,
-    "info/wallet_address": InfoWalletAddress,
-    "info/ticker": InfoTicker,
-    "info/orders": InfoOrders,
-    "info/order_detail": InfoOrderDetail,
-    "info/user_transactions": InfoUserTransactions,
-    "trade/place": TradePlace,
-    "trade/market_buy": TradeMarketBuy,
-    "trade/market_sell": TradeMarketSell,
-    "trade/stop_limit": TradeStopLimit,
-    "trade/cancel": TradeCancel,
-    "trade/btc_withdrawal": TradeBtcWithdrawal,
-}
-
 
 ################################################################
 # BithumbApi
@@ -157,71 +21,46 @@ class BithumbApi(BaseApi):
 
     # BITHUMB API URL
     baseUrl = "https://api.bithumb.com"
-    apiVersion = "unknown"
 
     async def request(self, path: str, **kwargs):
         model = BITHUMB_API[path.strip("/")](**kwargs)
         data = await self._request(**model.dict(exclude_none=True))
         return data
 
-    def _gen_request_args(self, route, **kwargs):
-        # for public endpoints
-        if route.strip("/").startswith("public"):
-            path = DELIM_PATH_PARAMS.join([kwargs.pop(p) for p in PATH_PARAMS_PUBLIC if p in kwargs.keys()])
-            url = urljoin(self.baseUrl, route, path)
-            queries = []
-            if "limit" in kwargs.keys():
-                queries += f"counts={kwargs['limit']}"
-            if "chart_interval" in kwargs.keys():
-                queries += kwargs["chart_interval"]
-            if len(queries) > 0:
-                queries = "&".join(queries)
-                url = f"{url}?{queries}"
-            return {
-                "url": url,
-                "headers": None,
-                "data": None,
-            }
+    def _gen_request_args(self, method, route, **kwargs):
+        url = self._join_url(self.baseUrl, route)
+        route = self._get_route(url)
 
-        # for non public endpoints
+        # Bithumb 특이사항, params에 endpoint를 다시 보냄...
         kwargs.update({"endpoint": route})
-        headers = self._gen_header(route=route, **kwargs)
-        return {
+        args = {
             "url": urljoin(self.baseUrl, route),
-            "headers": headers,
-            "data": kwargs,
+            "headers": self._gen_headers(method=method, route=route, **kwargs),
         }
+        if method.upper() == "GET":
+            args.update({"params": kwargs}),
+            return args
+        args.update({"data": kwargs}),
+        return args
 
-    def _gen_header(self, route, **kwargs):
+    def _gen_headers(self, method, route, **kwargs):
         # no required headers for public endpoints
         if route.strip("/").startswith("public"):
             return
 
         # for non-public endpoints
-        api_key = self.apiKey
-        api_secret = self.apiSecret
-        nonce = self._gen_api_nonce()
+        ts = str(int(time.time() * 1000))
         return {
-            "Api-Key": api_key,
-            "Api-Sign": self._gen_api_sign(
-                route=route,
-                nonce=nonce,
-                apiKey=api_key,
-                apiSecret=api_secret,
-                **kwargs,
-            ),
-            "Api-Nonce": nonce,
+            "Api-Key": self.apiKey,
+            "Api-Sign": self._gen_api_sign(route=route, ts=ts, apiSecret=self.apiSecret, **kwargs),
+            "Api-Nonce": ts,
         }
 
     @staticmethod
-    def _gen_api_sign(route, nonce, apiKey, apiSecret, **kwargs):
-        q = chr(0).join([route, urlencode(kwargs), nonce])
+    def _gen_api_sign(route, ts, apiSecret, **kwargs):
+        q = chr(0).join([route, urlencode(kwargs), ts])
         h = hmac.new(apiSecret.encode("utf-8"), q.encode("utf-8"), hashlib.sha512)
         return base64.b64encode(h.hexdigest().encode("utf-8")).decode()
-
-    @staticmethod
-    def _gen_api_nonce():
-        return str(int(time.time() * 1000))
 
     @staticmethod
     async def _default_handler(resp):
@@ -234,11 +73,15 @@ class BithumbApi(BaseApi):
     @staticmethod
     async def _limit_handler(headers):
         # get rate limit info.
-        rate_limit = {
-            "per_sec_remaining": int(headers["X-RateLimit-Remaining"]),
-            "per_sec_replenish": int(headers["X-RateLimit-Replenish-Rate"]),
-            "per_min_remaining": None,
-            "per_min_replenish": None,
-        }
+        try:
+            rate_limit = {
+                "per_sec_remaining": int(headers["X-RateLimit-Remaining"]),
+                "per_sec_replenish": int(headers["X-RateLimit-Replenish-Rate"]),
+                "per_min_remaining": None,
+                "per_min_replenish": None,
+            }
+            logger.debug(f"[HTTP] Bithumb Rate Limit: {rate_limit}")
+        except Exception as ex:
+            logger.warning(ex)
 
         return rate_limit

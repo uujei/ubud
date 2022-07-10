@@ -15,18 +15,19 @@ class Database:
         self.redis_topic = redis_topic
 
         # client and keys
-        self._redis_keys_key = f"{self.redis_topic}/keys"
+        self.redis_keys_key = f"{self.redis_topic}/keys"
 
         # trick async_init
         self._initialized = False
 
-    async def get(self, keys: list, drop_ts=True):
-        # parse keys
-        registered_keys = {
-            k for k in await self.redis_client.smembers(self._redis_keys_key) if not k.endswith("/keys")
-        }
-        keys = [k for key in self._ensure_list(keys) for k in registered_keys if fnmatch(k, key)]
+    async def get(self, key, drop_ts=True):
+        # get items
+        _, value = await self._get(key, drop_ts=drop_ts)
+        return value
 
+    async def mget(self, patterns: list = None, drop_ts=True):
+        # search keys matched
+        keys = await self.keys(patterns=patterns)
         # get items
         items = await asyncio.gather(*[self._get(key, drop_ts=drop_ts) for key in keys])
         return {k: v for k, v in [kv for kv in items if kv is not None]}
@@ -40,6 +41,12 @@ class Database:
         if drop_ts:
             value = {k: v for k, v in value.items() if not k.startswith("_ts")}
         return (key, value)
+
+    async def keys(self, patterns=None):
+        registered_keys = await self.redis_client.smembers(self.redis_keys_key)
+        if patterns is None:
+            return sorted(registered_keys)
+        return [k for key in self._ensure_list(patterns) for k in registered_keys if fnmatch(k, key)]
 
     @staticmethod
     def _ensure_list(x):
