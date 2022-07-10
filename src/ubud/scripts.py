@@ -1,6 +1,10 @@
+import asyncio
 import logging
+import os
 
 import click
+import dotenv
+import yaml
 from click_loglevel import LogLevel
 from clutter.aws import get_secrets
 
@@ -39,22 +43,9 @@ def ubud():
 # STREAM WEBSOCKET
 ################################################################
 @ubud.command()
-@click.option("-m", "--markets", default="upbit,bithumb")
-@click.option("-q", "--channel", default="trade,orderbook")
-@click.option("-s", "--symbols", default=["BTC", "WAVES"], multiple=True)
-@click.option("-c", "--currencies", default=["KRW"], multiple=True)
-@click.option("-t", "--topic", default="ubud")
-@click.option("--host", default="localhost")
-@click.option("--port", default=6379)
-@click.option("--expire-sec", default=600)
-@click.option("--buffer-len", default=100)
-@click.option("--log-level", default=logging.INFO, type=LogLevel())
-def start_stream(markets, channel, symbols, currencies, topic, host, port, expire_sec, buffer_len, log_level):
-    """
-    [NOTE]
-    FTX의 Currency 강제함
-    """
-    import asyncio
+@click.option("-c", "--conf", default="conf.yml", type=click.Path(exists=True))
+@click.option("--log-level", default=logging.WARNING, type=LogLevel())
+def start_stream(conf, log_level):
 
     # set log level
     logging.basicConfig(
@@ -63,42 +54,69 @@ def start_stream(markets, channel, symbols, currencies, topic, host, port, expir
     )
 
     ################################################################
-    # ARGS
+    # Load Conf
     ################################################################
-    # correct markets, channel, symbols
-    markets = [m.lower() for m in markets.split(",")]
-    channel = [c.lower() for c in channel.split(",")]
-    symbols = [s.upper() for ss in symbols for s in ss.split(",")]
-    currencies = [c.upper() for cc in currencies for c in cc.split(",")]
-    recipes = [{"market": m, "args": {"channel": c, "symbols": symbols}} for m in markets for c in channel]
+    with open(conf, "r") as f:
+        conf = yaml.load(f, Loader=yaml.Loader)
 
-    # logging
-    logger.info(f"[UBUD] markets   : {markets}")
-    logger.info(f"[UBUD] channel   : {channel}")
-    logger.info(f"[UBUD] symbols   : {symbols}")
-    logger.info(f"[UBUD] currencies: {currencies}")
+    # topic
+    topic = conf["topic"]
+
+    # load dotenv
+    dotenv.load_dotenv(conf["env_file"])
+
+    # credential
+    credential = conf["credential"]
+    CREDS = dict()
+    for market, cred in credential.items():
+        CREDS.update({market: dict()})
+        for k, v in cred.items():
+            CREDS[market].update({k: os.getenv(v)})
+
+    # redis
+    redis_conf = conf["redis"]
+    redis_client_conf = {k: v for k, v in redis_conf.items() if k in ("host", "port", "decode_responses")}
+    redis_expire_sec = redis_conf.get("expire_sec")
+    redis_maxlen = redis_conf.get("maxlen")
+
+    websocket_conf = conf["websocket"]
+
+    # # logging
+    # logger.info(f"[UBUD] markets   : {markets}")
+    # logger.info(f"[UBUD] channel   : {channel}")
+    # logger.info(f"[UBUD] symbols   : {symbols}")
+    # logger.info(f"[UBUD] currencies: {currencies}")
 
     ################################################################
     # TASK SETTINGS
     ################################################################
     async def tasks():
         # set redis client
-        redis_client = redis.Redis(host=host, port=port, decode_responses=True)
+        redis_client = redis.Redis(**redis_client_conf)
         coroutines = []
 
         # add collector task (redis stream to redis db)
-        # collector = Collector(redis_client=redis_client, redis_topic=topic, redis_expire_sec=expire_sec)
-        # coroutines += [collector.run()]
+        collector = Collector(redis_client=redis_client, redis_topic=topic, redis_expire_sec=redis_expire_sec)
+        coroutines += [collector.run()]
 
         # add websocket streamer tasks
-        streamer = Streamer(redis_client=redis_client, redis_topic=topic, redis_xadd_maxlen=buffer_len)
-        coroutines += [
-            WEBSOCKET[opt["market"]](**opt["args"], currencies=currencies, handler=streamer).run() for opt in recipes
-        ]
+        streamer = Streamer(redis_client=redis_client, redis_topic=topic, redis_xadd_maxlen=redis_maxlen)
+        for market, args in websocket_conf.items():
+            for channel in args["channel"]:
+                coroutines += [
+                    WEBSOCKET[market](
+                        channel=channel,
+                        symbols=args["symbol"],
+                        currencies=args["currency"],
+                        apiKey=CREDS[market]["apiKey"],
+                        apiSecret=CREDS[market]["apiSecret"],
+                        handler=streamer,
+                    ).run()
+                ]
 
         # add http streamer task - 1. ForexApi
         coroutines += [
-            ForexApi(redis_client=redis_client, redis_topic=topic, redis_xadd_maxlen=buffer_len).run(interval=30)
+            ForexApi(redis_client=redis_client, redis_topic=topic, redis_xadd_maxlen=redis_maxlen).run(interval=30)
         ]
 
         # run
