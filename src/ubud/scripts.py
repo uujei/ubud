@@ -80,7 +80,11 @@ def start_stream(conf, log_level):
     redis_conf = conf["redis"]
     redis_client_conf = {k: v for k, v in redis_conf.items() if k in ("host", "port", "decode_responses")}
     redis_expire_sec = redis_conf.get("expire_sec")
+    if redis_expire_sec is None:
+        redis_expire_sec = 15
     redis_maxlen = redis_conf.get("maxlen")
+    if redis_maxlen is None:
+        redis_maxlen = 30
 
     websocket_conf = conf["websocket"]
 
