@@ -45,7 +45,7 @@ class Collector:
             while True:
                 stream_names = await self.redis_client.smembers(self._redis_stream_names_key)
                 await asyncio.gather(*[self.collect(stream_name) for stream_name in stream_names])
-                await asyncio.sleep(0.0001)
+                await asyncio.sleep(0.001)
         except Exception as ex:
             logger.error(ex)
         finally:
