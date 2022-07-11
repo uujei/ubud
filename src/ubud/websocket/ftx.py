@@ -158,7 +158,6 @@ PARSER = {
 ################################################################
 class FtxWebsocket(BaseWebsocket):
     ws_url = "wss://ftx.com/ws/"
-    ws_conf = {}
 
     def __init__(
         self,
@@ -206,13 +205,16 @@ class FtxWebsocket(BaseWebsocket):
 ################################################################
 if __name__ == "__main__":
     import os
+    import dotenv
+
+    dotenv.load_dotenv()
 
     logger.setLevel(logging.DEBUG)
     log_handler = logging.StreamHandler()
     logger.addHandler(log_handler)
 
-    apiKey = os.environ["FTX_KEY"]
-    apiSecret = os.environ["FTX_SECRET"]
+    apiKey = os.environ["FTX_API_KEY"]
+    apiSecret = os.environ["FTX_API_SECRET"]
 
     CHANNELS = ["orderbook", "trade"]
 

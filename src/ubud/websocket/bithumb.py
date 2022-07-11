@@ -149,7 +149,6 @@ PARSER = {
 ################################################################
 class BithumbWebsocket(BaseWebsocket):
     ws_url = "wss://pubwss.bithumb.com/pub/ws"
-    ws_conf = {"ping_interval": None}
 
     # init
     def __init__(

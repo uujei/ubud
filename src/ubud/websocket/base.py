@@ -1,6 +1,8 @@
 import abc
+import asyncio
 import json
 import logging
+import socket
 from time import time
 from typing import Callable
 
@@ -15,13 +17,39 @@ logger = logging.getLogger(__name__)
 # BaseWebsocket
 ################################################################
 class BaseWebsocket(abc.ABC):
+    ws_conf = {"ping_timeout": None}
+
     # run
     async def run(self):
-        async with websockets.connect(self.ws_url, **self.ws_conf) as ws:
+        while True:
             logger.info(f"[WEBSOCKET] Try Connect to '{self.ws_url}'")
-            await self._request(ws, params=self.ws_params)
-            while True:
-                _ = await self._recv(ws, parser=self.parser, handler=self.handler)
+            try:
+                async with websockets.connect(self.ws_url, **self.ws_conf) as ws:
+                    await self._request(ws, params=self.ws_params)
+                    while True:
+                        try:
+                            _ = await self._recv(ws, parser=self.parser, handler=self.handler)
+                        except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
+                            try:
+                                pong = await ws.ping()
+                                await asyncio.wait_for(pong, timeout=self.ping_timeout)
+                                continue
+                            except Exception as ex:
+                                logger.warning(
+                                    f"[WEBSOCKET] Ping Error '{ex}' - retrying connection in 1 sec (Ctrl-C to quit)"
+                                )
+                                await asyncio.sleep(1)
+                                break
+            except socket.gaierror:
+                logger.warning(
+                    "[WEBSOCKET] Socket Get Address Info Error - retrying connection in 1 sec (Ctrl-C to quit)"
+                )
+                await asyncio.sleep(1)
+                continue
+            except ConnectionRefusedError:
+                logger.error("Nobody seems to listen to this endpoint. Please check the URL.")
+                await asyncio.sleep(1)
+                continue
 
     @staticmethod
     async def _recv(ws, parser: Callable = None, handler: Callable = None):
@@ -30,7 +58,7 @@ class BaseWebsocket(abc.ABC):
             return
         msg = json.loads(recv)
         ts_ws_recv = time()
-        logger.debug(f"[WEBSOCKET] Receive Message from ORDERBOOK @ {ts_to_strdt(ts_ws_recv, _float=True)}")
+        logger.debug(f"[WEBSOCKET] Receive Message @ {ts_to_strdt(ts_ws_recv, _float=True)}")
         logger.debug(f"[WEBSOCKET] Body: {msg}")
 
         # parser

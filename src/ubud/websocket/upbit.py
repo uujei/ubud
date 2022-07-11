@@ -149,7 +149,6 @@ PARSER = {
 ################################################################
 class UpbitWebsocket(BaseWebsocket):
     ws_url = "wss://api.upbit.com/websocket/v1"
-    ws_conf = {}
 
     # init
     def __init__(

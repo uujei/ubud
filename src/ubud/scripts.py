@@ -4,8 +4,10 @@ import os
 
 import click
 import dotenv
+import uvloop
 import yaml
 from click_loglevel import LogLevel
+import time
 
 import redis.asyncio as redis
 
@@ -19,7 +21,7 @@ logger.propagate = False
 logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler())
 
-DEFAULT_LOG_FORMAT = "%(asctime)s:%(levelname)s:%(message)s"
+DEFAULT_LOG_FORMAT = "%(asctime)s:%(name)s:%(levelname)s:%(message)s"
 
 WEBSOCKET = {
     "upbit": UpbitWebsocket,
@@ -103,6 +105,7 @@ def start_stream(conf, log_level):
         # add websocket streamer tasks
         streamer = Streamer(redis_client=redis_client, redis_topic=topic, redis_xadd_maxlen=redis_maxlen)
         for market, args in websocket_conf.items():
+            # if market not in ["ftx", "bithumb"]:
             for channel in args["channel"]:
                 coroutines += [
                     WEBSOCKET[market](
@@ -132,10 +135,18 @@ def start_stream(conf, log_level):
             ]
 
         # run
-        await asyncio.gather(*coroutines)
+        start = time.time()
+        try:
+            await asyncio.gather(*coroutines)
+        except Exception as ex:
+            end = time.time()
+            print(f"start {start}, end {end}, ({end - start}s)")
 
     ################################################################
     # START TASKS
     ################################################################
     logger.info("[UBUD] Start Websocket Stream")
+
+    # uvloop will be used for loop engine
+    uvloop.install()
     asyncio.run(tasks())
