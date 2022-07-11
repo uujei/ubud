@@ -4,7 +4,7 @@ $ sudo apt install redis
 $ redis-cli ping
 PONG 출력되면 잘 설치된 것
 
-$ git clone <this repository>
+$ git clone https://github.com/uujei/ubud.git
 
 $ cd ubud
 
