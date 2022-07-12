@@ -1,9 +1,11 @@
 import asyncio
 import json
 import logging
+from datetime import datetime
 
 import redis.asyncio as redis
 
+from ..const import KST
 from .bithumb import BithumbApi
 from .ftx import FtxApi
 from .upbit import UpbitApi
@@ -45,23 +47,38 @@ class BalanceUpdater:
         # get stream names
         self._redis_stream_names = await self.redis_client.smembers(self._redis_stream_names_key)
 
-        # register key
-        try:
-            while True:
-                # get records
-                records = await self.get()
-                logger.debug(f"[BALANCE] HTTP Response: {records}")
-                await asyncio.gather(*[self.xadd(k, v) for k, v in records.items()])
-                if self.interval is not None:
+        _n_retry = 0
+        while True:
+            try:
+                while True:
+                    # get records
+                    records = await self.get()
+                    logger.debug(f"[BALANCE] HTTP Response: {records}")
+
+                    # register key
+                    await asyncio.gather(*[self.xadd(k, v) for k, v in records.items()])
+
+                    # reset retry and sleep
+                    _n_retry = 0
                     await asyncio.sleep(self.interval)
-        except Exception as ex:
-            logger.error(ex)
-            raise (ex)
+            except Exception as ex:
+                logger.warning("[BALANCE] Connection Error - {ex}")
+                if _n_retry > 10:
+                    logger.error("[BALANCE] Connection Error 10 Times! - {ex}")
+                    raise ex
+                await asyncio.sleep(1)
 
     async def xadd(self, k, v):
         try:
+            # stream name
             stream_name = f"{self.stream_prefix}/{k}"
-            msg = {"name": stream_name, "fields": {"name": f"{self.prefix}/{k}", "value": v}}
+
+            # stamp datetime when streaming
+            _datetime = datetime.now().astimezone(KST).strftime("%Y-%m-%dT%H:%M:%S.%f%z")
+            msg = {
+                "name": stream_name,
+                "fields": {"name": f"{self.prefix}/{k}", "value": json.dumps({"datetime": _datetime, **v})},
+            }
             await self.redis_client.xadd(
                 **msg,
                 maxlen=self.redis_xadd_maxlen,
@@ -83,6 +100,7 @@ class UpbitBalanceUpdater(BalanceUpdater, UpbitApi):
 
     async def get(self):
         balances = await self.request(**self.ARGS)
+
         results = dict()
         _ = [results.update(self._parser(b)) for b in balances]
         return results
@@ -93,7 +111,7 @@ class UpbitBalanceUpdater(BalanceUpdater, UpbitApi):
             return {}
         free = float(bal["balance"])
         locked = float(bal["locked"])
-        return {f"{self.MARKET}/{symbol}": json.dumps({"total": free + locked, "locked": locked, "free": free})}
+        return {f"{self.MARKET}/{symbol}": {"total": free + locked, "locked": locked, "free": free}}
 
 
 class BithumbBalanceUpdater(BalanceUpdater, BithumbApi):
@@ -120,8 +138,8 @@ class BithumbBalanceUpdater(BalanceUpdater, BithumbApi):
             if field_key is not None:
                 if name not in results.keys():
                     results[name] = dict()
-                results[name].update({field_key: v})
-        return {k: json.dumps(v) for k, v in results.items()}
+                results[name].update({field_key: float(v)})
+        return {k: v for k, v in results.items()}
 
     def _parser(self, key):
         cat, symbol = key.rsplit("_", 1)
@@ -146,7 +164,7 @@ class FtxBalanceUpdater(BalanceUpdater, FtxApi):
             return {}
         total = float(bal["total"])
         free = float(bal["free"])
-        return {f"{self.MARKET}/{symbol}": json.dumps({"total": total, "locked": total - free, "free": free})}
+        return {f"{self.MARKET}/{symbol}": {"total": total, "locked": total - free, "free": free}}
 
 
 ################################################################

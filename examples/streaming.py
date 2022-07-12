@@ -2,13 +2,8 @@ import asyncio
 import logging
 import os
 
-import click
 import dotenv
-import yaml
-from click_loglevel import LogLevel
-
 import redis.asyncio as redis
-
 from ubud.api.forex import ForexApi
 from ubud.api.unified import BithumbBalanceUpdater, FtxBalanceUpdater, UpbitBalanceUpdater
 from ubud.redis import Collector, Streamer

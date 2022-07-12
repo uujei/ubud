@@ -4,6 +4,10 @@
 
 ####  Update
 
+2022.7.12   서버측 문제로 API 끊어질 경우 (수 시간에 한 번씩 발생) 다시 시도하도록 BalanceUpdater 수정
+
+2022.7.12   Database에 trade, ordrebook, balance, forex 메소드 추가 (사용하기 쉽도록)
+
 2022.7.11   Websocket 끊어지는 문제 해결 (ping_timeout 제거)
 
 2022.7.11  속도 개선 (비동기 Loop를 asyncio native에서 uvloop으로 교체)
@@ -44,6 +48,3 @@ $ ubud start-stream --log-level INFO
 # (참고) Background에서 가동하고 싶으면
 $ nohup ubud start-stream &> ubud.log &
 ```
-
-
-

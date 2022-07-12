@@ -123,7 +123,7 @@ async def orderbook_parser(body, ts_ws_recv=None):
             symbol_currency = _split_symbol(body["market"])
             data = body["data"]
             base_msg = {
-                DATETIME: datetime.fromtimestamp(data["time"]).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f"),
+                DATETIME: datetime.fromtimestamp(data["time"]).astimezone(KST).strftime("%Y-%m-%dT%H:%M:%S.%f%z"),
                 MARKET: THIS_MARKET,
                 API_CATEGORY: THIS_API_CATEGORY,
                 CHANNEL: ORDERBOOK,
