@@ -24,6 +24,19 @@ class Database:
         self._initialized = False
 
     async def get(self, key, drop_ts=True):
+        value = await self._get(key, drop_ts=drop_ts)
+        if value is None:
+            return
+        return value[-1]
+
+    async def mget(self, patterns: list = None, drop_ts=True):
+        # search keys matched
+        keys = await self.keys(patterns=patterns)
+        # get items
+        kvs = await asyncio.gather(*[self._get(key, drop_ts=drop_ts) for key in keys])
+        return {k: v for k, v in [kv for kv in kvs if kv is not None]}
+
+    async def _get(self, key, drop_ts=True):
         value = await self.redis_client.get(key)
         if value is None:
             logger.warning(f"[DB] Empty Value for '{key}'!")
@@ -31,17 +44,7 @@ class Database:
         value = json.loads(value)
         if drop_ts:
             value = {k: v for k, v in value.items() if not k.startswith("_ts")}
-        return {key: value}
-
-    async def mget(self, patterns: list = None, drop_ts=True):
-        # search keys matched
-        keys = await self.keys(patterns=patterns)
-        # get items
-        values = await asyncio.gather(*[self.get(key, drop_ts=drop_ts) for key in keys])
-        results = dict()
-        for value in [v for v in values if v is not None]:
-            results.update(value)
-        return results
+        return (key, value)
 
     async def keys(self, patterns=None):
         registered_keys = await self.redis_client.smembers(self.redis_keys_key)

@@ -10,7 +10,7 @@ class BaseLogic:
     ):
         self.redis_client = redis_client
         self.db = Database(redis_client=self.redis_client)
-        self.stream_keys = stream_keys
+        self.stream_keys = self._ensure_list(stream_keys)
 
     async def run(self):
         while True:
@@ -21,3 +21,11 @@ class BaseLogic:
     @staticmethod
     async def trigger(db):
         return True
+
+    @staticmethod
+    def _ensure_list(x):
+        if x is None:
+            return x
+        if isinstance(x, (list, tuple)):
+            return x
+        return [_.strip() for _ in x.split(",")]
