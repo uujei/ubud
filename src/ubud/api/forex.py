@@ -85,7 +85,7 @@ class ForexApi:
         self.redis_xadd_approximate = redis_xadd_approximate
 
         self._redis_stream_names_key = f"{self.redis_topic}-stream/keys"
-        self._redis_stream_name = f"{self.redis_topic}-stream/forex"
+        self._redis_stream_name = f"{self.redis_topic}-stream/forex/{self.codes}"
         self._redis_field_key = f"{self.redis_topic}/forex/{self.codes}"
         self._path = "/forex/recent"
 

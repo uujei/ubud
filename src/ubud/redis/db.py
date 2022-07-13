@@ -19,6 +19,7 @@ class Database:
 
         # client and keys
         self.redis_keys_key = f"{self.redis_topic}/keys"
+        self.redis_streams_key = f"{self.redis_topic}-stream/keys"
 
         # trick async_init
         self._initialized = False
@@ -40,6 +41,7 @@ class Database:
         value = await self.redis_client.get(key)
         if value is None:
             logger.warning(f"[DB] Empty Value for '{key}'!")
+            await self.redis_client.srem(self.redis_keys_key, key)
             return
         value = json.loads(value)
         if drop_ts:
@@ -52,13 +54,27 @@ class Database:
             return sorted(registered_keys)
         return [k for key in self._ensure_list(patterns) for k in registered_keys if fnmatch(k, key)]
 
-    async def balance(self, market="*", symbol="*"):
+    async def streams(self, patterns=None):
+        registered_keys = await self.redis_client.smembers(self.redis_streams_key)
+        if patterns is None:
+            return sorted(registered_keys)
+        return [k for key in self._ensure_list(patterns) for k in registered_keys if fnmatch(k, key)]
+
+    async def balance(self, market, symbol):
+        _key = f"{self.redis_topic}/exchange/balance/{market}/{symbol}"
+        return await self.get(_key)
+
+    async def balances(self, market="*", symbol="*"):
         _prefix = f"{self.redis_topic}/exchange/balance/"
         market, symbol = self._split(market, symbol)
         values = await self.mget([f"{_prefix}{m}/{s}" for m in market for s in symbol])
         return {k.replace(_prefix, ""): v for k, v in values.items()}
 
-    async def orderbook(self, market="*", symbol="*", currency="*", orderType="*"):
+    async def orderbook(self, market, symbol, currency, orderType):
+        _key = f"{self.redis_topic}/quotation/orderbook/{market}/{symbol}/{currency}/{orderType}"
+        return await self.get(_key)
+
+    async def orderbooks(self, market="*", symbol="*", currency="*", orderType="*"):
         _prefix = f"{self.redis_topic}/quotation/orderbook/"
         market, symbol, currency, orderType = self._split(market, symbol, currency, orderType)
         values = await self.mget(
@@ -66,7 +82,11 @@ class Database:
         )
         return {k.replace(_prefix, ""): v for k, v in values.items()}
 
-    async def trade(self, market="*", symbol="*", currency="*", orderType="*"):
+    async def trade(self, market, symbol, currency, orderType):
+        _key = f"{self.redis_topic}/quotation/trade/{market}/{symbol}/{currency}/{orderType}"
+        return await self.get(_key)
+
+    async def trades(self, market="*", symbol="*", currency="*", orderType="*"):
         _prefix = f"{self.redis_topic}/quotation/trade/"
         market, symbol, currency, orderType = self._split(market, symbol, currency, orderType)
         values = await self.mget(
@@ -74,7 +94,11 @@ class Database:
         )
         return {k.replace(_prefix, ""): v for k, v in values.items()}
 
-    async def forex(self, code="FRX.KRWUSD", prop="basePrice"):
+    async def forex(self, code="FRX.KRWUSD"):
+        _key = f"{self.redis_topic}/forex/{code}"
+        return await self.get(_key)
+
+    async def forexes(self, code="FRX.KRWUSD"):
         _prefix = f"{self.redis_topic}/forex/"
         code = self._split(code)
         values = await self.mget([f"{_prefix}{c}" for c in code])

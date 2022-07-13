@@ -65,8 +65,8 @@ class OrderDelete(BaseModel):
 class Orders(BaseModel):
     method: str = "get"
     route: str = "/orders"
-    market: str
-    uuids: str
+    market: str = None
+    uuids: str = None
     state: str = None
     states: list = None
     page: int = 1

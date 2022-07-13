@@ -83,7 +83,7 @@ def start_stream(conf, log_level):
     redis_client_conf = {k: v for k, v in redis_conf.items() if k in ("host", "port", "decode_responses")}
     redis_expire_sec = redis_conf.get("expire_sec")
     if redis_expire_sec is None:
-        redis_expire_sec = 15
+        redis_expire_sec = 300
     redis_maxlen = redis_conf.get("maxlen")
     if redis_maxlen is None:
         redis_maxlen = 30
@@ -94,8 +94,14 @@ def start_stream(conf, log_level):
     # TASK SETTINGS
     ################################################################
     async def tasks():
-        # set redis client
+
+        # clean exist keys
         redis_client = redis.Redis(**redis_client_conf)
+        _keys = await redis_client.keys(f"{topic}/*")
+        _stream_keys = await redis_client.keys(f"{topic}-stream/*")
+        _ = await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
+
+        # set redis client
         coroutines = []
 
         # add collector task (redis stream to redis db)
@@ -148,5 +154,6 @@ def start_stream(conf, log_level):
     logger.info("[UBUD] Start Websocket Stream")
 
     # uvloop will be used for loop engine
-    uvloop.install()
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
     asyncio.run(tasks())

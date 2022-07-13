@@ -62,9 +62,9 @@ class BalanceUpdater:
                     _n_retry = 0
                     await asyncio.sleep(self.interval)
             except Exception as ex:
-                logger.warning("[BALANCE] Connection Error - {ex}")
+                logger.warning(f"[BALANCE] Connection Error - {ex}")
                 if _n_retry > 10:
-                    logger.error("[BALANCE] Connection Error 10 Times! - {ex}")
+                    logger.error(f"[BALANCE] Connection Error 10 Times! - {ex}")
                     raise ex
                 await asyncio.sleep(1)
 
@@ -147,6 +147,10 @@ class BithumbBalanceUpdater(BalanceUpdater, BithumbApi):
 
 
 class FtxBalanceUpdater(BalanceUpdater, FtxApi):
+    """
+    여기 수정중!!! (get과 _parser ~ USD가 업데이트 안되어서)
+    """
+
     MARKET = "ftx"
     ARGS = {
         "path": "/wallet/balances",
@@ -154,17 +158,24 @@ class FtxBalanceUpdater(BalanceUpdater, FtxApi):
 
     async def get(self):
         balances = await self.request(**self.ARGS)
-        results = dict()
-        _ = [results.update(self._parser(b)) for b in balances]
-        return results
+        return {
+            f"{self.MARKET}/{bal['coin']}": {
+                "total": float(bal["total"]),
+                "locked": float(bal["total"]) - float(bal["free"]),
+                "free": float(bal["free"]),
+            }
+            for bal in balances
+        }
 
-    def _parser(self, bal):
-        symbol = bal["coin"]
-        if self.symbols is not None and symbol not in self.symbols:
-            return {}
-        total = float(bal["total"])
-        free = float(bal["free"])
-        return {f"{self.MARKET}/{symbol}": {"total": total, "locked": total - free, "free": free}}
+    #     for bal in balances:
+    #         results.update(self._parser(bal))
+    #     return results
+
+    # def _parser(self, bal):
+    #     symbol = bal["coin"]
+    #     total = float(bal["total"])
+    #     free = float(bal["free"])
+    #     return {f"{self.MARKET}/{symbol}": {"total": total, "locked": total - free, "free": free}}
 
 
 ################################################################

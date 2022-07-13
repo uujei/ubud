@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import time
+
 import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
@@ -27,7 +29,7 @@ class Collector:
         if redis_xread_offset in ["earliest", "smallest"]:
             redis_xread_offset = "0"
         if redis_xread_offset in ["latest", "largest"]:
-            redis_xread_offset = "$"
+            redis_xread_offset = str(int(time.time() * 1e3))
         self.redis_xread_offset = redis_xread_offset
 
         # stream management

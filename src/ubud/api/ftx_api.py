@@ -8,7 +8,17 @@ logger = logging.getLogger(__name__)
 ################################
 # Models (Validators)
 ################################
-# accounts
+class GetMarkets(BaseModel):
+    method: str = "get"
+    route: str = "/markets"
+
+
+class Positions(BaseModel):
+    method: str = "get"
+    route: str = "/positions"
+
+
+# account
 class GetBalances(BaseModel):
     method: str = "get"
     route: str = "/wallet/balances"
@@ -17,6 +27,15 @@ class GetBalances(BaseModel):
         extra = Extra.forbid
 
 
+class GetAllBalances(BaseModel):
+    method: str = "get"
+    route: str = "/wallet/all_balances"
+
+    class Config:
+        extra = Extra.forbid
+
+
 FTX_API = {
     "wallet/balances": GetBalances,
+    "wallet/all_balances": GetAllBalances,
 }
