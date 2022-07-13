@@ -17,7 +17,7 @@ class Collector:
         redis_topic: str = "ubud",
         redis_expire_sec: int = 600,
         redis_xread_offset: str = "0",
-        redis_xread_count: int = 10,
+        redis_xread_count: int = 100,
     ):
         # properties
         self.redis_client = redis_client
@@ -47,7 +47,6 @@ class Collector:
             while True:
                 stream_names = await self.redis_client.smembers(self._redis_stream_names_key)
                 await asyncio.gather(*[self.collect(stream_name) for stream_name in stream_names])
-                await asyncio.sleep(0.001)
         except Exception as ex:
             logger.error(ex)
         finally:
@@ -64,27 +63,28 @@ class Collector:
             self._redis_stream_offset.update({stream_name: self.redis_xread_offset})
         # do job
         streams = await self.redis_client.xread(
-            {stream_name: self._redis_stream_offset[stream_name]}, count=self.redis_xread_count
+            {stream_name: self._redis_stream_offset[stream_name]},
+            count=self.redis_xread_count,
+            block=1,
         )
-        for _, stream in streams:
-            for idx, data in stream:
-                try:
-                    # set data
-                    logger.info(f"[COLLECTOR] SET {data['name']}, {data['value']}, EXPIRE {self.redis_expire_sec}")
-                    await self.redis_client.set(name=data["name"], value=data["value"], ex=self.redis_expire_sec)
-
-                    # update stream offset
-                    logger.debug(f"[COLLECTOR] Update Stream Offset {stream_name}, {idx}")
-                    self._redis_stream_offset.update({stream_name: idx})
-
-                    # update key
-                    key = data["name"]
-                    if key not in self._redis_keys:
-                        logger.info(f"[COLLECTOR] New Key '{key}' Found, SADD {self._redis_keys_key}, {key}")
-                        await self.redis_client.sadd(self._redis_keys_key, key)
-                        self._redis_keys = await self.redis_client.smembers(self._redis_keys_key)
-                except Exception as ex:
-                    logger.warning(ex)
+        if len(streams) > 0:
+            for _, stream in streams:
+                for idx, data in stream:
+                    try:
+                        # set data
+                        logger.info(f"[COLLECTOR] SET {data['name']}, {data['value']}, EXPIRE {self.redis_expire_sec}")
+                        await self.redis_client.set(name=data["name"], value=data["value"], ex=self.redis_expire_sec)
+                    except Exception as ex:
+                        logger.warning(ex)
+                # update stream offset only for last idx
+                logger.debug(f"[COLLECTOR] Update Stream Offset {stream_name}, {idx}")
+                self._redis_stream_offset.update({stream_name: idx})
+                # update key only for last data ~ because stream name and key are paired
+                key = data["name"]
+                if key not in self._redis_keys:
+                    logger.info(f"[COLLECTOR] New Key '{key}' Found, SADD {self._redis_keys_key}, {key}")
+                    await self.redis_client.sadd(self._redis_keys_key, key)
+                    self._redis_keys = await self.redis_client.smembers(self._redis_keys_key)
 
 
 ################################################################
