@@ -4,6 +4,13 @@
 
 ####  Update
 
+2022.7.14   conf.yml 형식 수정
+
+2022.7.14   InfluxDB Sink 작성 및 테스트
+
+2022.7.14   Orderbook 레코드에 Rank 포함 (Rank 포함 안 되어 있어서, 후순위 호가가 선순위를 계속 덮어쓰고 있었음)
+
+
 2022.7.12   서버측 문제로 API 끊어질 경우 (수 시간에 한 번씩 발생) 다시 시도하도록 BalanceUpdater 수정
 
 2022.7.12   Database에 trade, ordrebook, balance, forex 메소드 추가 (사용하기 쉽도록)
