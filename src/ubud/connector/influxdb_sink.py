@@ -137,7 +137,7 @@ class InfluxDBConnector:
             self._redis_stream_offset.update({stream_name: self.redis_xread_offset})
         # do job
         streams = await self.redis_client.xread(
-            {stream_name: self._redis_stream_offset[stream_name]}, count=self.redis_xread_count
+            {stream_name: self._redis_stream_offset[stream_name]}, count=self.redis_xread_count, block=1
         )
         if len(streams) > 0:
             points = []

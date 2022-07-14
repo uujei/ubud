@@ -32,6 +32,10 @@ credential:
   ftx:
     apiKey: FTX_API_KEY
     apiSecret: FTX_API_SECRET
+  influxdb:
+    url: INFLUXDB_URL
+    token: INFLUXDB_TOKEN
+    org: INFLUXDB_ORG
 
 # SYMBOLS
 symbols:
