@@ -1,18 +1,17 @@
 import asyncio
 import logging
 import os
+import time
 
 import click
 import dotenv
 import uvloop
 import yaml
 from click_loglevel import LogLevel
-import time
 
 import redis.asyncio as redis
 
-from .api.forex import ForexApi
-from .api.unified import BithumbBalanceUpdater, FtxBalanceUpdater, UpbitBalanceUpdater
+from .api.unified import BithumbBalanceUpdater, ForexUpdater, FtxBalanceUpdater, UpbitBalanceUpdater
 from .redis import Collector, Streamer
 from .websocket import BithumbWebsocket, FtxWebsocket, UpbitWebsocket
 
@@ -64,11 +63,11 @@ def start_stream(conf, log_level):
     with open(conf, "r") as f:
         conf = yaml.load(f, Loader=yaml.Loader)
 
-    # topic
-    topic = conf["topic"]
-
     # load dotenv
     dotenv.load_dotenv(conf["env_file"])
+
+    # topic
+    topic = conf["topic"]
 
     # credential
     credential = conf["credential"]
@@ -80,15 +79,19 @@ def start_stream(conf, log_level):
 
     # redis
     redis_conf = conf["redis"]
-    redis_client_conf = {k: v for k, v in redis_conf.items() if k in ("host", "port", "decode_responses")}
-    redis_expire_sec = redis_conf.get("expire_sec")
-    if redis_expire_sec is None:
-        redis_expire_sec = 300
-    redis_maxlen = redis_conf.get("maxlen")
-    if redis_maxlen is None:
-        redis_maxlen = 30
+    redis_opts = conf["redis_opts"]
 
+    # symbols
+    symbols = conf["symbols"]
+
+    # websocket
     websocket_conf = conf["websocket"]
+
+    # balance
+    balance_conf = conf["balance"]
+
+    # forex
+    forex_conf = conf["forex"]
 
     ################################################################
     # TASK SETTINGS
@@ -96,7 +99,7 @@ def start_stream(conf, log_level):
     async def tasks():
 
         # clean exist keys
-        redis_client = redis.Redis(**redis_client_conf)
+        redis_client = redis.Redis(**redis_conf)
         _keys = await redis_client.keys(f"{topic}/*")
         _stream_keys = await redis_client.keys(f"{topic}-stream/*")
         _ = await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
@@ -105,18 +108,31 @@ def start_stream(conf, log_level):
         coroutines = []
 
         # add collector task (redis stream to redis db)
-        collector = Collector(redis_client=redis_client, redis_topic=topic, redis_expire_sec=redis_expire_sec)
+        collector = Collector(redis_client=redis_client, redis_topic=topic, redis_expire_sec=redis_opts["expire_sec"])
         coroutines += [collector.run()]
 
+        # add http streamer task - 1. ForexApi
+        coroutines += [
+            ForexUpdater(
+                **forex_conf,
+                redis_client=redis_client,
+                redis_topic=topic,
+                redis_xadd_maxlen=redis_opts["xadd_maxlen"],
+            ).run()
+        ]
+
         # add websocket streamer tasks
-        streamer = Streamer(redis_client=redis_client, redis_topic=topic, redis_xadd_maxlen=redis_maxlen)
+        streamer = Streamer(
+            redis_client=redis_client,
+            redis_topic=topic,
+            redis_xadd_maxlen=redis_opts["xadd_maxlen"],
+        )
         for market, args in websocket_conf.items():
-            # if market not in ["ftx", "bithumb"]:
             for channel in args["channel"]:
                 coroutines += [
                     WEBSOCKET[market](
                         channel=channel,
-                        symbols=args["symbol"],
+                        symbols=symbols,
                         currencies=args["currency"],
                         apiKey=CREDS[market]["apiKey"],
                         apiSecret=CREDS[market]["apiSecret"],
@@ -124,19 +140,17 @@ def start_stream(conf, log_level):
                     ).run()
                 ]
 
-        # add http streamer task - 1. ForexApi
-        coroutines += [ForexApi(redis_client=redis_client, redis_topic=topic, redis_xadd_maxlen=redis_maxlen).run()]
-
         # add balance updater
-        for market, _ in websocket_conf.items():
+        for market, args in balance_conf.items():
+            args = {} if args is None else args
             coroutines += [
                 BALANCE_UPDATER[market](
                     apiKey=CREDS[market]["apiKey"],
                     apiSecret=CREDS[market]["apiSecret"],
-                    symbols=args["symbol"],
-                    interval=0.6,
+                    symbols=symbols,
+                    **args,
                     redis_client=redis_client,
-                    redis_topic="ubud",
+                    redis_topic=topic,
                 ).run()
             ]
 

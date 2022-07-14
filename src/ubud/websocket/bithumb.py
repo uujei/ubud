@@ -2,36 +2,37 @@ import asyncio
 import json
 import logging
 import sys
-from time import time
 from datetime import datetime
+from time import time
 from typing import Callable
 
-from .base import BaseWebsocket
 from ..const import (
     AMOUNT,
     API_CATEGORY,
     ASK,
     BID,
     BOOK_COUNT,
+    CHANNEL,
     CURRENCY,
     DATETIME,
+    DT_FMT,
+    DT_FMT_FLOAT,
     MARKET,
     ORDERBOOK,
     ORDERTYPE,
     PRICE,
     QUANTITY,
-    CHANNEL,
+    RANK,
     SYMBOL,
     TICKER,
     TRADE,
     TRADE_DATETIME,
-    DT_FMT,
-    DT_FMT_FLOAT,
-    TS_WS_SEND,
     TS_MARKET,
     TS_WS_RECV,
+    TS_WS_SEND,
     ts_to_strdt,
 )
+from .base import BaseWebsocket
 
 logger = logging.getLogger(__name__)
 
@@ -64,87 +65,6 @@ def _split_symbol(symbol):
 
 
 ################################################################
-# Market Parsers
-################################################################
-# [TRADE]
-async def trade_parser(body, ts_ws_recv=None):
-    messages = []
-
-    # parse and pub
-    if "content" in body.keys():
-        try:
-            content = body["content"]
-            base_msg = {
-                MARKET: THIS_MARKET,
-                API_CATEGORY: THIS_API_CATEGORY,
-                CHANNEL: TRADE,
-            }
-            for r in content["list"]:
-                symbol_currency = _split_symbol(r["symbol"])
-                trade_datetime = r["contDtm"].replace(" ", "T") + "+0900"
-                ts_market = datetime.strptime(trade_datetime, DT_FMT_FLOAT).timestamp()
-                msg = {
-                    DATETIME: trade_datetime,
-                    **base_msg,
-                    **symbol_currency,
-                    ORDERTYPE: ASK if r["buySellGb"] == "1" else BID,
-                    PRICE: float(r["contPrice"]),
-                    QUANTITY: float(r["contQty"]),
-                    AMOUNT: float(r["contAmt"]),
-                    TS_MARKET: ts_market,
-                    TS_WS_RECV: ts_ws_recv,
-                }
-                messages += [msg]
-                logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-        except Exception as ex:
-            logger.warn(f"[{__name__}] {ex}")
-
-    return messages
-
-
-# [ORDERBOOK]
-async def orderbook_parser(body, ts_ws_recv=None):
-    try:
-        # parse and pub
-        if "content" in body.keys():
-            messages = []
-            content = body["content"]
-            ts_ws_send = int(content["datetime"]) / 1e6
-            base_msg = {
-                DATETIME: ts_to_strdt(ts_ws_send),
-                MARKET: THIS_MARKET,
-                API_CATEGORY: THIS_API_CATEGORY,
-                CHANNEL: ORDERBOOK,
-            }
-            for r in content["list"]:
-                symbol_currency = _split_symbol(r["symbol"])
-                msg = {
-                    **base_msg,
-                    **symbol_currency,
-                    ORDERTYPE: r["orderType"],
-                    PRICE: float(r["price"]),
-                    QUANTITY: float(r["quantity"]),
-                    BOOK_COUNT: int(r["total"]),
-                    TS_WS_SEND: ts_ws_send,
-                    TS_WS_RECV: ts_ws_recv,
-                }
-                messages += [msg]
-                logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-
-    except Exception as ex:
-        logger.warn(f"[{__name__}] {ex}")
-
-    return messages
-
-
-# PARSER
-PARSER = {
-    TRADE: trade_parser,
-    ORDERBOOK: orderbook_parser,
-}
-
-
-################################################################
 # BithumbWebsocket
 ################################################################
 class BithumbWebsocket(BaseWebsocket):
@@ -170,8 +90,29 @@ class BithumbWebsocket(BaseWebsocket):
         assert isinstance(currencies, (list, tuple)), "[ERROR] 'currencies' should be a list!"
         self.symbols = [_concat_symbol_currency(s, c) for s in symbols for c in currencies]
         self.ws_params = self._generate_ws_params(self.channel, self.symbols)
-        self.parser = PARSER[channel]
+
+        # SELECT PARSER
+        if channel == "trade":
+            self.parser = self.trade_parser
+        elif channel == "orderbook":
+            self.parser = self.orderbook_parser
+        else:
+            raise ReferenceError(f"[WEBSOCKET] Unknown channel '{channel}'")
+
+        # HANDLER
         self.handler = handler
+
+        # Bithumb, FTX는 변경호가를 제공 ~ Store 필요
+        self._orderbook_len = 15
+        self._orderbook = dict()
+        for sc in self.symbols:
+            _sc = _split_symbol(sc)
+            symbol, currency = _sc[SYMBOL], _sc[CURRENCY]
+            if symbol not in self._orderbook:
+                self._orderbook[symbol] = dict()
+            if currency not in self._orderbook[symbol]:
+                self._orderbook[symbol][currency] = dict()
+            self._orderbook[symbol][currency] = {ASK: dict(), BID: dict()}
 
     @staticmethod
     def _generate_ws_params(channel, symbols):
@@ -193,6 +134,129 @@ class BithumbWebsocket(BaseWebsocket):
             raise ConnectionError(msg)
         logger.info(f"[WEBSOCKET] {msg['resmsg']} with Status Code {msg['status']}")
 
+    # [TRADE]
+    async def trade_parser(self, body, ts_ws_recv=None):
+        messages = []
+
+        # parse and pub
+        if "content" in body.keys():
+            try:
+                content = body["content"]
+                base_msg = {
+                    MARKET: THIS_MARKET,
+                    API_CATEGORY: THIS_API_CATEGORY,
+                    CHANNEL: TRADE,
+                }
+                for r in content["list"]:
+                    symbol_currency = _split_symbol(r["symbol"])
+                    trade_datetime = r["contDtm"].replace(" ", "T") + "+0900"
+                    ts_market = datetime.strptime(trade_datetime, DT_FMT_FLOAT).timestamp()
+                    msg = {
+                        DATETIME: trade_datetime,
+                        **base_msg,
+                        **symbol_currency,
+                        ORDERTYPE: ASK if r["buySellGb"] == "1" else BID,
+                        RANK: 0,
+                        PRICE: float(r["contPrice"]),
+                        QUANTITY: float(r["contQty"]),
+                        AMOUNT: float(r["contAmt"]),
+                        TS_MARKET: ts_market,
+                        TS_WS_RECV: ts_ws_recv,
+                    }
+                    messages += [msg]
+                    logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+            except Exception as ex:
+                logger.warn(f"[{__name__}] {ex}")
+
+        return messages
+
+    # [ORDERBOOK]
+    async def orderbook_parser(self, body, ts_ws_recv=None):
+        messages = []
+
+        try:
+            # parse and pub
+            if "content" in body.keys():
+                content = body["content"]
+                ts_ws_send = int(content["datetime"]) / 1e6
+                base_msg = {
+                    DATETIME: ts_to_strdt(ts_ws_send),
+                    MARKET: THIS_MARKET,
+                    API_CATEGORY: THIS_API_CATEGORY,
+                    CHANNEL: ORDERBOOK,
+                }
+                for r in content["list"]:
+                    symbol_currency = _split_symbol(r["symbol"])
+                    price = float(r["price"])
+                    orderType = r["orderType"]
+                    quantity = float(r["quantity"])
+
+                    # get rank of orderbook
+                    rank = self._rank_orderbook(
+                        symbol=symbol_currency[SYMBOL],
+                        currency=symbol_currency[CURRENCY],
+                        orderType=orderType,
+                        price=price,
+                        quantity=quantity,
+                        reverse=True if orderType == BID else False,
+                    )
+                    if rank is None:
+                        continue
+
+                    # generaete message
+                    msg = {
+                        **base_msg,
+                        **symbol_currency,
+                        ORDERTYPE: r["orderType"],
+                        RANK: rank,
+                        PRICE: price,
+                        QUANTITY: quantity,
+                        BOOK_COUNT: int(r["total"]),
+                        TS_WS_SEND: ts_ws_send,
+                        TS_WS_RECV: ts_ws_recv,
+                    }
+                    messages += [msg]
+                    logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+
+        except Exception as ex:
+            logger.warning(f"[{__name__}] {ex}")
+
+        return messages
+
+    # ORDERBOOK HELPER
+    def _rank_orderbook(self, symbol, currency, orderType, price, quantity, reverse=False):
+        # pop zero quantity orderbook
+        if quantity == 0.0:
+            if price in self._orderbook[symbol][currency][orderType].keys():
+                self._orderbook[symbol][currency][orderType].pop(price)
+                self._orderbook[symbol][currency][orderType] = self._rank(
+                    self._orderbook[symbol][currency][orderType], reverse=reverse, maxlen=self._orderbook_len
+                )
+            return
+
+        # add new orderbook unit
+        if price not in self._orderbook[symbol][currency][orderType].keys():
+            self._orderbook[symbol][currency][orderType][price] = -1
+
+        # sort orderbook ~ note orderbook_len + 1 is useful when some orderbook is popped
+        self._orderbook[symbol][currency][orderType] = self._rank(
+            self._orderbook[symbol][currency][orderType], reverse=reverse, maxlen=self._orderbook_len
+        )
+
+        # return
+        if len(self._orderbook[symbol][currency][orderType]) < self._orderbook_len:
+            return None
+
+        rank = self._orderbook[symbol][currency][orderType].get(price)
+        if rank is None or rank > self._orderbook_len:
+            return
+        return rank
+
+    # rank
+    @staticmethod
+    def _rank(x, reverse, maxlen):
+        return {k: i + 1 for i, (k, _) in enumerate(sorted(x.items(), reverse=reverse)) if i < maxlen + 1}
+
 
 ################################################################
 # DEBUG RUN
@@ -202,10 +266,11 @@ if __name__ == "__main__":
     log_handler = logging.StreamHandler()
     logger.addHandler(log_handler)
 
-    CHANNELS = ["orderbook", "trade"]
+    CHANNELS = ["orderbook"]
+    SYMBOLS = ["BTC"]
 
     async def tasks():
-        coros = [BithumbWebsocket(channel=c, symbols=["BTC", "ETH", "WAVES"]).run() for c in CHANNELS]
+        coros = [BithumbWebsocket(channel=c, symbols=SYMBOLS).run() for c in CHANNELS]
         await asyncio.gather(*coros)
 
     asyncio.run(tasks())

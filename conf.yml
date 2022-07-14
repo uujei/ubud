@@ -1,3 +1,6 @@
+#
+
+
 # [Namespace]
 # 모든 redis key는 아래 namespace로 시작 (다른 작업과 겹치지 않게)
 topic: ubud
@@ -11,8 +14,10 @@ redis:
   host: localhost
   port: 6379
   decode_responses: true
-  exprire_sec: 60
-  maxlen: 100
+  
+redis_opts:
+  expire_sec: 300
+  xadd_maxlen: 100
 
 # [Credential]
 # API Key, Secret는 환경변수로 전달.
@@ -28,6 +33,12 @@ credential:
     apiKey: FTX_API_KEY
     apiSecret: FTX_API_SECRET
 
+# SYMBOLS
+symbols:
+  - BTC
+  - WAVES
+  - KNC
+  - AXS
 
 # [Websocket 설정]
 # 현재 upbit, uithumb, FTX 사용 가능.
@@ -37,10 +48,6 @@ websocket:
     channel:
       - trade
       - orderbook
-    symbol:
-      - BTC
-      - ETH
-      - WAVES
     currency:
       - KRW
   
@@ -48,25 +55,25 @@ websocket:
     channel:
       - trade
       - orderbook
-    symbol:
-      - BTC
-      - ETH
-      - WAVES
     currency:
       - KRW
   ftx:
     channel:
       - trade
       - orderbook
-    symbol:
-      - BTC
-      - ETH
-      - WAVES
     currency:
       - USD
       - -PERP
 
-# [HTTP 설정]
-http:
-  forex:
-    request:
+# [Balance Updater]
+balance:
+  upbit:
+  bithumb:
+  ftx:
+
+# [FOREX Updater]
+forex:
+  codes: FRX.KRWUSD
+  interval: 10
+  
+    

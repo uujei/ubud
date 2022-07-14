@@ -23,6 +23,7 @@ from ..const import (
     SYMBOL,
     TS_MARKET,
     TS_MQ_RECV,
+    RANK,
     TS_MQ_SEND,
     TS_WS_RECV,
     UTC,
@@ -40,7 +41,7 @@ MEASUREMENT = API_CATEGORY
 
 RECIPES = {
     "quotation": {
-        "tags": [MARKET, CHANNEL, SYMBOL, CURRENCY, ORDERTYPE],
+        "tags": [MARKET, CHANNEL, SYMBOL, CURRENCY, ORDERTYPE, RANK],
         "fields": [PRICE, QUANTITY, AMOUNT],
     }
 }

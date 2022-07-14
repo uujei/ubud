@@ -101,52 +101,6 @@ class ForexApi:
                 resp = await resp.json()
                 return resp
 
-    async def run(self):
-        # register key
-        await self.redis_client.sadd(self._redis_stream_names_key, self._redis_stream_name)
-
-        try:
-            while True:
-                # get record
-                records = await self.request()
-                logger.debug(f"[FOREX] get records: {records}")
-
-                # stream
-                await asyncio.gather(*[self.xadd(r) for r in records])
-
-                # sleep
-                if self.interval is not None:
-                    await asyncio.sleep(self.interval)
-        except Exception as ex:
-            logger.error(ex)
-            raise ex
-
-    async def xadd(self, record):
-        try:
-            msg = {
-                "name": self._redis_stream_name,
-                "fields": {"name": self._redis_field_key, "value": self._parser(record)},
-            }
-            await self.redis_client.xadd(
-                **msg,
-                maxlen=self.redis_xadd_maxlen,
-                approximate=self.redis_xadd_approximate,
-            )
-            logger.debug(f"[FOREX] XADD {msg['name']} {msg['fields']}")
-        except Exception as ex:
-            logger.warning(ex)
-
-    @staticmethod
-    def _parser(record):
-        return json.dumps(
-            {
-                "datetime": datetime.fromtimestamp(record["timestamp"] / 1e3)
-                .astimezone(KST)
-                .isoformat(timespec="milliseconds"),
-                **{k: v for k, v in record.items() if k.endswith("Price")},
-            }
-        )
-
 
 ################################################################
 # DEBUG

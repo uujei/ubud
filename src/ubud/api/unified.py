@@ -7,12 +7,73 @@ import redis.asyncio as redis
 
 from ..const import KST
 from .bithumb import BithumbApi
+from .forex import ForexApi
 from .ftx import FtxApi
 from .upbit import UpbitApi
 
 logger = logging.getLogger(__name__)
 
 
+################################################################
+# Forex Updater
+################################################################
+class ForexUpdater(ForexApi):
+    async def run(self):
+        # register key
+        await self.redis_client.sadd(self._redis_stream_names_key, self._redis_stream_name)
+
+        _n_retry = 0
+        while True:
+            try:
+                while True:
+                    # get record
+                    records = await self.request()
+                    logger.debug(f"[FOREX] get records: {records}")
+
+                    # stream
+                    await asyncio.gather(*[self.xadd(r) for r in records])
+
+                    # sleep
+                    if self.interval is not None:
+                        await asyncio.sleep(self.interval)
+            except Exception as ex:
+                logger.warning(f"[FOREX] Connection Error - {ex}")
+                _n_retry += 1
+                if _n_retry > 10:
+                    logger.error(f"[FOREX] Connection Error 10 Times! - {ex}")
+                    raise ex
+                await asyncio.sleep(1)
+
+    async def xadd(self, record):
+        try:
+            msg = {
+                "name": self._redis_stream_name,
+                "fields": {"name": self._redis_field_key, "value": self._parser(record)},
+            }
+            await self.redis_client.xadd(
+                **msg,
+                maxlen=self.redis_xadd_maxlen,
+                approximate=self.redis_xadd_approximate,
+            )
+            logger.debug(f"[FOREX] XADD {msg['name']} {msg['fields']}")
+        except Exception as ex:
+            logger.warning(ex)
+
+    @staticmethod
+    def _parser(record):
+        return json.dumps(
+            {
+                "datetime": datetime.fromtimestamp(record["timestamp"] / 1e3)
+                .astimezone(KST)
+                .isoformat(timespec="milliseconds"),
+                **{k: v for k, v in record.items() if k.endswith("Price")},
+            }
+        )
+
+
+################################################################
+# Balance Updater
+################################################################
 class BalanceUpdater:
     def __init__(
         self,
@@ -63,6 +124,7 @@ class BalanceUpdater:
                     await asyncio.sleep(self.interval)
             except Exception as ex:
                 logger.warning(f"[BALANCE] Connection Error - {ex}")
+                _n_retry += 1
                 if _n_retry > 10:
                     logger.error(f"[BALANCE] Connection Error 10 Times! - {ex}")
                     raise ex

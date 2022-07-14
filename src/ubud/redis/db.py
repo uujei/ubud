@@ -70,29 +70,38 @@ class Database:
         values = await self.mget([f"{_prefix}{m}/{s}" for m in market for s in symbol])
         return {k.replace(_prefix, ""): v for k, v in values.items()}
 
-    async def orderbook(self, market, symbol, currency, orderType):
-        _key = f"{self.redis_topic}/quotation/orderbook/{market}/{symbol}/{currency}/{orderType}"
+    async def orderbook(self, market, symbol, currency, orderType, rank=1):
+        _key = f"{self.redis_topic}/quotation/orderbook/{market}/{symbol}/{currency}/{orderType}/{rank}"
         return await self.get(_key)
 
-    async def orderbooks(self, market="*", symbol="*", currency="*", orderType="*"):
+    async def orderbooks(self, market="*", symbol="*", currency="*", orderType="*", rank="*", max_rank=None):
         _prefix = f"{self.redis_topic}/quotation/orderbook/"
-        market, symbol, currency, orderType = self._split(market, symbol, currency, orderType)
+        if max_rank is not None:
+            rank = ",".join([str(i + 1) for i in range(max_rank)])
+        market, symbol, currency, orderType, rank = self._split(market, symbol, currency, orderType, rank)
         values = await self.mget(
-            [f"{_prefix}{m}/{s}/{c}/{o}" for m in market for s in symbol for c in currency for o in orderType]
+            [
+                f"{_prefix}{m}/{s}/{c}/{o}/{r}"
+                for m in market
+                for s in symbol
+                for c in currency
+                for o in orderType
+                for r in rank
+            ]
         )
         return {k.replace(_prefix, ""): v for k, v in values.items()}
 
     async def trade(self, market, symbol, currency, orderType):
-        _key = f"{self.redis_topic}/quotation/trade/{market}/{symbol}/{currency}/{orderType}"
+        _key = f"{self.redis_topic}/quotation/trade/{market}/{symbol}/{currency}/{orderType}/0"
         return await self.get(_key)
 
     async def trades(self, market="*", symbol="*", currency="*", orderType="*"):
         _prefix = f"{self.redis_topic}/quotation/trade/"
         market, symbol, currency, orderType = self._split(market, symbol, currency, orderType)
         values = await self.mget(
-            [f"{_prefix}{m}/{s}/{c}/{o}" for m in market for s in symbol for c in currency for o in orderType]
+            [f"{_prefix}{m}/{s}/{c}/{o}/0" for m in market for s in symbol for c in currency for o in orderType]
         )
-        return {k.replace(_prefix, ""): v for k, v in values.items()}
+        return {k.replace(_prefix, "").replace("/0", ""): v for k, v in values.items()}
 
     async def forex(self, code="FRX.KRWUSD"):
         _key = f"{self.redis_topic}/forex/{code}"

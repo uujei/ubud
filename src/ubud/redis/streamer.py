@@ -53,7 +53,7 @@ class Streamer:
         try:
             await asyncio.gather(*[self.xadd(msg) for msg in messages])
         except Exception as ex:
-            logger.warn(ex)
+            logger.warn(f"[STREAMER] {ex}")
             traceback.print_exc()
 
     async def xadd(self, msg):
@@ -62,13 +62,14 @@ class Streamer:
             logger.info(f"[STREAMER] XADD {msg['name']} {msg['fields']} MAXLEN {self.redis_xadd_maxlen}")
             await self.redis_client.xadd(**msg, maxlen=self.redis_xadd_maxlen, approximate=self.redis_xadd_approximate)
         except Exception as ex:
-            logger.warning("[STREAMER] XADD Failed - {ex}")
+            logger.warning(f"[STREAMER] XADD Failed - {ex}, msg: {msg}")
+            traceback.print_exc()
 
     async def parser(self, msg: dict):
-        _subtopic = "/".join([msg.pop(_TOPIC) for _TOPIC in MQ_SUBTOPICS])
+        _subtopic = "/".join([str(msg[_TOPIC]) for _TOPIC in MQ_SUBTOPICS])
         name = f"{self.redis_topic}-stream/" + _subtopic
         field_key = f"{self.redis_topic}/" + _subtopic
-        field_value = json.dumps({**{k: v for k, v in msg.items()}, TS_MQ_SEND: time.time()})
+        field_value = json.dumps({**{k: v for k, v in msg.items() if k not in MQ_SUBTOPICS}, TS_MQ_SEND: time.time()})
 
         # register stream key
         if name not in self._redis_stream_keys:

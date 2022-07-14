@@ -60,17 +60,18 @@ CHANNEL_PARAMS = {
 API_CATEGORY = "api_category"
 DATETIME = "datetime"
 MARKET = "market"
-CHANNEL = "type"
+CHANNEL = "channel"
 SYMBOL = "symbol"
 SYMBOLS = "symbols"
 CURRENCY = "currency"
 ORDERTYPE = "orderType"
+RANK = "rank"
 ASK = "ask"
 BID = "bid"
 PRICE = "price"
 QUANTITY = "quantity"
 AMOUNT = "amount"
-
+BOOKCOUNT = "bookcount"
 # TRADE ONLY
 TRADE_DATETIME = "trade_dt"
 TRADE_SID = "trade_sid"
@@ -87,7 +88,7 @@ TS_MQ_SEND = "_ts_mq_send"
 TS_MQ_RECV = "_ts_mq_recv"
 
 # MQ SUBTOPIC RULES
-MQ_SUBTOPICS = [API_CATEGORY, CHANNEL, MARKET, SYMBOL, CURRENCY, ORDERTYPE]
+MQ_SUBTOPICS = [API_CATEGORY, CHANNEL, MARKET, SYMBOL, CURRENCY, ORDERTYPE, RANK]
 
 # DATETIME FORMAT
 DT_FMT = "%Y-%m-%dT%H:%M:%S%z"

@@ -4,8 +4,10 @@ import json
 import logging
 import sys
 import time
-from typing import Callable, DefaultDict, Deque, Dict, List, Optional, Tuple
+import traceback
 from datetime import datetime
+from typing import Callable, DefaultDict, Deque, Dict, List, Optional, Tuple
+
 import websockets
 
 from ..const import (
@@ -17,11 +19,13 @@ from ..const import (
     CHANNEL,
     CURRENCY,
     DATETIME,
+    KST,
     MARKET,
     ORDERBOOK,
     ORDERTYPE,
     PRICE,
     QUANTITY,
+    RANK,
     SYMBOL,
     TICKER,
     TRADE,
@@ -30,9 +34,8 @@ from ..const import (
     TS_MARKET,
     TS_WS_RECV,
     TS_WS_SEND,
-    ts_to_strdt,
     UTC,
-    KST,
+    ts_to_strdt,
 )
 from .base import BaseWebsocket
 
@@ -80,80 +83,6 @@ def _buy_sell(x):
 
 
 ################################################################
-# Market Parsers
-################################################################
-# TRADE
-async def trade_parser(body, ts_ws_recv=None):
-    messages = []
-    try:
-        if body["type"] == "update":
-            symbol_currency = _split_symbol(body["market"])
-            base_msg = {
-                MARKET: THIS_MARKET,
-                API_CATEGORY: THIS_API_CATEGORY,
-                CHANNEL: TRADE,
-                **symbol_currency,
-            }
-            data = body["data"]
-            for record in data:
-                msg = {
-                    DATETIME: record["time"],
-                    **base_msg,
-                    TRADE_SID: record["id"],
-                    ORDERTYPE: _buy_sell(record["side"]),
-                    PRICE: record["price"],
-                    QUANTITY: record["size"],
-                    TS_WS_SEND: datetime.fromisoformat(record["time"]).timestamp(),
-                    TS_WS_RECV: ts_ws_recv,
-                    "_side": record["side"],
-                    "_liquidation": record["liquidation"],
-                }
-                messages += [msg]
-                logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-    except Exception as ex:
-        logger.warning(ex)
-    return messages
-
-
-# ORDERBOOK
-async def orderbook_parser(body, ts_ws_recv=None):
-    messages = []
-    try:
-        if body["type"] == "update":
-            symbol_currency = _split_symbol(body["market"])
-            data = body["data"]
-            base_msg = {
-                DATETIME: datetime.fromtimestamp(data["time"]).astimezone(KST).strftime("%Y-%m-%dT%H:%M:%S.%f%z"),
-                MARKET: THIS_MARKET,
-                API_CATEGORY: THIS_API_CATEGORY,
-                CHANNEL: ORDERBOOK,
-                **symbol_currency,
-            }
-            for _type, _TYPE in [("asks", ASK), ("bids", BID)]:
-                for price, quantity in data[_type]:
-                    msg = {
-                        **base_msg,
-                        ORDERTYPE: _TYPE,
-                        PRICE: price,
-                        QUANTITY: quantity,
-                        TS_WS_SEND: data["time"],
-                        TS_WS_RECV: ts_ws_recv,
-                    }
-                    messages += [msg]
-                    logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-    except Exception as ex:
-        logger.warning(ex)
-    return messages
-
-
-# PARSER
-PARSER = {
-    TRADE: trade_parser,
-    ORDERBOOK: orderbook_parser,
-}
-
-
-################################################################
 # UpbitWebsocket
 ################################################################
 class FtxWebsocket(BaseWebsocket):
@@ -182,8 +111,29 @@ class FtxWebsocket(BaseWebsocket):
         assert isinstance(currencies, (list, tuple)), "[ERROR] 'currencies' should be a list!"
         self.symbols = [_concat_symbol_currency(s, c) for s in symbols for c in currencies]
         self.ws_params = self._generate_ws_params()
-        self.parser = PARSER[channel]
+
+        # SELECT PARSER
+        if channel == "trade":
+            self.parser = self.trade_parser
+        elif channel == "orderbook":
+            self.parser = self.orderbook_parser
+        else:
+            raise ReferenceError(f"[WEBSOCKET] Unknown channel '{channel}'")
+
+        # HANDLER
         self.handler = handler
+
+        # Bithumb, FTX는 변경호가를 제공 ~ Store 필요
+        self._orderbook_len = 15
+        self._orderbook = dict()
+        for sc in self.symbols:
+            _sc = _split_symbol(sc)
+            symbol, currency = _sc[SYMBOL], _sc[CURRENCY]
+            if symbol not in self._orderbook:
+                self._orderbook[symbol] = dict()
+            if currency not in self._orderbook[symbol]:
+                self._orderbook[symbol][currency] = dict()
+            self._orderbook[symbol][currency] = {ASK: dict(), BID: dict()}
 
     def _generate_ws_params(self):
         ts = int(time.time() * 1000)
@@ -199,12 +149,124 @@ class FtxWebsocket(BaseWebsocket):
             logger.info(f"[WEBSOCKET] Requsts with Parameters {_params}")
             await ws.send(json.dumps(_params))
 
+    # TRADE
+    async def trade_parser(self, body, ts_ws_recv=None):
+        messages = []
+        try:
+            if body["type"] == "update":
+                symbol_currency = _split_symbol(body["market"])
+                base_msg = {
+                    MARKET: THIS_MARKET,
+                    API_CATEGORY: THIS_API_CATEGORY,
+                    CHANNEL: TRADE,
+                    **symbol_currency,
+                }
+                data = body["data"]
+                for record in data:
+                    msg = {
+                        DATETIME: record["time"],
+                        **base_msg,
+                        TRADE_SID: record["id"],
+                        ORDERTYPE: _buy_sell(record["side"]),
+                        RANK: 0,
+                        PRICE: record["price"],
+                        QUANTITY: record["size"],
+                        TS_WS_SEND: datetime.fromisoformat(record["time"]).timestamp(),
+                        TS_WS_RECV: ts_ws_recv,
+                        "_side": record["side"],
+                        "_liquidation": record["liquidation"],
+                    }
+                    messages += [msg]
+                    logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+        except Exception as ex:
+            logger.warning(ex)
+            traceback.print_exc()
+        return messages
+
+    # ORDERBOOK
+    async def orderbook_parser(self, body, ts_ws_recv=None):
+        messages = []
+        try:
+            if body["type"] == "update":
+                symbol_currency = _split_symbol(body["market"])
+                data = body["data"]
+                base_msg = {
+                    DATETIME: datetime.fromtimestamp(data["time"]).astimezone(KST).strftime("%Y-%m-%dT%H:%M:%S.%f%z"),
+                    MARKET: THIS_MARKET,
+                    API_CATEGORY: THIS_API_CATEGORY,
+                    CHANNEL: ORDERBOOK,
+                    **symbol_currency,
+                }
+                for _type, orderType in [("asks", ASK), ("bids", BID)]:
+                    for price, quantity in data[_type]:
+                        # get rank of orderbook
+                        rank = self._rank_orderbook(
+                            symbol=symbol_currency[SYMBOL],
+                            currency=symbol_currency[CURRENCY],
+                            orderType=orderType,
+                            price=price,
+                            quantity=quantity,
+                            reverse=True if orderType == BID else False,
+                        )
+                        if rank is None:
+                            continue
+
+                        msg = {
+                            **base_msg,
+                            ORDERTYPE: orderType,
+                            RANK: rank,
+                            PRICE: price,
+                            QUANTITY: quantity,
+                            TS_WS_SEND: data["time"],
+                            TS_WS_RECV: ts_ws_recv,
+                        }
+                        messages += [msg]
+                        logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+        except Exception as ex:
+            traceback.print_exc()
+        return messages
+
+    # ORDERBOOK HELPER
+    def _rank_orderbook(self, symbol, currency, orderType, price, quantity, reverse=False):
+        # pop zero quantity orderbook
+        if quantity == 0.0:
+            if price in self._orderbook[symbol][currency][orderType].keys():
+                self._orderbook[symbol][currency][orderType].pop(price)
+                self._orderbook[symbol][currency][orderType] = self._rank(
+                    self._orderbook[symbol][currency][orderType], reverse=reverse, maxlen=self._orderbook_len
+                )
+            return
+
+        # add new orderbook unit
+        if price not in self._orderbook[symbol][currency][orderType].keys():
+            self._orderbook[symbol][currency][orderType][price] = -1
+
+        # sort orderbook ~ note orderbook_len + 1 is useful when some orderbook is popped
+        self._orderbook[symbol][currency][orderType] = self._rank(
+            self._orderbook[symbol][currency][orderType], reverse=reverse, maxlen=self._orderbook_len
+        )
+
+        # return
+        if len(self._orderbook[symbol][currency][orderType]) < self._orderbook_len:
+            return None
+
+        rank = self._orderbook[symbol][currency][orderType].get(price)
+        if rank is None or rank > self._orderbook_len:
+            return
+        return rank
+
+    # rank
+    @staticmethod
+    def _rank(x, reverse, maxlen):
+        return {k: i + 1 for i, (k, _) in enumerate(sorted(x.items(), reverse=reverse)) if i < maxlen + 1}
+
 
 ################################################################
 # DEBUG RUN
 ################################################################
 if __name__ == "__main__":
     import os
+
     import dotenv
 
     dotenv.load_dotenv()
@@ -216,11 +278,11 @@ if __name__ == "__main__":
     apiKey = os.environ["FTX_API_KEY"]
     apiSecret = os.environ["FTX_API_SECRET"]
 
-    CHANNELS = ["orderbook", "trade"]
+    CHANNELS = ["orderbook"]
 
     async def tasks():
         coros = [
-            FtxWebsocket(channel=c, symbols=["BTC", "ETH", "WAVES"], apiKey=apiKey, apiSecret=apiSecret).run()
+            FtxWebsocket(channel=c, symbols=["BTC"], currencies=["USD"], apiKey=apiKey, apiSecret=apiSecret).run()
             for c in CHANNELS
         ]
         await asyncio.gather(*coros)
