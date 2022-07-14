@@ -55,10 +55,6 @@ class Collector:
             await self.redis_client.close()
 
     async def collect(self, stream_name):
-        assert isinstance(
-            stream_name, str
-        ), "[COLLECTOR] You Must Turn On 'decode_responses'! - client = Redis(..., decode_reponses=True)"
-        # register new stream_name
         if stream_name not in self._redis_stream_offset.keys():
             self._redis_stream_offset.update({stream_name: self.redis_xread_offset})
         # do job
@@ -76,14 +72,16 @@ class Collector:
                         await self.redis_client.set(name=data["name"], value=data["value"], ex=self.redis_expire_sec)
                     except Exception as ex:
                         logger.warning(ex)
+
                 # update stream offset only for last idx
                 logger.debug(f"[COLLECTOR] Update Stream Offset {stream_name}, {idx}")
                 self._redis_stream_offset.update({stream_name: idx})
+
                 # update key only for last data ~ because stream name and key are paired
-                key = data["name"]
-                if key not in self._redis_keys:
-                    logger.info(f"[COLLECTOR] New Key '{key}' Found, SADD {self._redis_keys_key}, {key}")
-                    await self.redis_client.sadd(self._redis_keys_key, key)
+                if data["name"] not in self._redis_keys:
+                    _key = data["name"]
+                    logger.info(f"[COLLECTOR] New Key '{_key}' Found, SADD {self._redis_keys_key}, {_key}")
+                    await self.redis_client.sadd(self._redis_keys_key, _key)
                     self._redis_keys = await self.redis_client.smembers(self._redis_keys_key)
 
 

@@ -34,6 +34,21 @@ BALANCE_UPDATER = {
     "ftx": FtxBalanceUpdater,
 }
 
+# HELPERS
+def _load_configs(conf):
+    with open(conf, "r") as f:
+        conf = yaml.load(f, Loader=yaml.Loader)
+    return conf
+
+
+def _load_credential(credential: dict):
+    ret = dict()
+    for market, conf in credential.items():
+        ret.update({market: dict()})
+        for k, v in conf.items():
+            ret[market].update({k: os.getenv(v)})
+    return ret
+
 
 ################################################################
 # GROUP UBUD
@@ -49,6 +64,247 @@ def ubud():
 @ubud.command()
 @click.option("-c", "--conf", default="conf.yml", type=click.Path(exists=True))
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
+def start_websocket(conf, log_level):
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    # load conf
+    conf = _load_configs(conf)
+    dotenv.load_dotenv(conf["env_file"])
+    topic = conf["topic"]
+    credential = _load_credential(conf["credential"])
+    redis_conf = conf["redis"]
+    redis_opts = conf["redis_opts"]
+    symbols = conf["symbols"]
+    websocket_conf = conf["websocket"]
+
+    # TASK #
+    async def tasks():
+        # clean exist keys
+        redis_client = redis.Redis(**redis_conf)
+        _keys = await redis_client.keys(f"{topic}/*")
+        _stream_keys = await redis_client.keys(f"{topic}-stream/*")
+        _ = await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
+
+        # set redis client
+        coroutines = []
+
+        # add websocket streamer tasks
+        streamer = Streamer(
+            redis_client=redis_client,
+            redis_topic=topic,
+            redis_xadd_maxlen=redis_opts["xadd_maxlen"],
+        )
+        for market, args in websocket_conf.items():
+            for channel in args["channel"]:
+                coroutines += [
+                    WEBSOCKET[market](
+                        channel=channel,
+                        symbols=symbols,
+                        currencies=args["currency"],
+                        apiKey=credential[market]["apiKey"],
+                        apiSecret=credential[market]["apiSecret"],
+                        handler=streamer,
+                    ).run()
+                ]
+
+        # run
+        start = time.time()
+        try:
+            await asyncio.gather(*coroutines)
+        except Exception as ex:
+            end = time.time()
+            print(f"start {start}, end {end}, ({end - start}s)")
+
+    # START TASKS
+    logger.info("[UBUD] Start Websocket Stream")
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+    asyncio.run(tasks())
+
+
+################################################################
+# STREAM BALANCE UPDATER
+################################################################
+@ubud.command()
+@click.option("-c", "--conf", default="conf.yml", type=click.Path(exists=True))
+@click.option("--log-level", default=logging.WARNING, type=LogLevel())
+def start_balance_updater(conf, log_level):
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    # load conf
+    conf = _load_configs(conf)
+    dotenv.load_dotenv(conf["env_file"])
+    topic = conf["topic"]
+    credential = _load_credential(conf["credential"])
+    redis_conf = conf["redis"]
+    symbols = conf["symbols"]
+    balance_conf = conf["balance"]
+
+    # TASKS #
+    async def tasks():
+        # clean exist keys
+        redis_client = redis.Redis(**redis_conf)
+        _keys = await redis_client.keys(f"{topic}/*")
+        _stream_keys = await redis_client.keys(f"{topic}-stream/*")
+        _ = await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
+
+        # set redis client
+        coroutines = []
+
+        # add balance updater
+        for market, args in balance_conf.items():
+            args = {} if args is None else args
+            coroutines += [
+                BALANCE_UPDATER[market](
+                    apiKey=credential[market]["apiKey"],
+                    apiSecret=credential[market]["apiSecret"],
+                    symbols=symbols,
+                    **args,
+                    redis_client=redis_client,
+                    redis_topic=topic,
+                ).run()
+            ]
+
+        # run
+        start = time.time()
+        try:
+            await asyncio.gather(*coroutines)
+        except Exception as ex:
+            end = time.time()
+            print(f"start {start}, end {end}, ({end - start}s)")
+
+    # START TASKS
+    logger.info("[UBUD] Start Banace Updater")
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+    asyncio.run(tasks())
+
+
+################################################################
+# STREAM FOREX UPDATER
+################################################################
+@ubud.command()
+@click.option("-c", "--conf", default="conf.yml", type=click.Path(exists=True))
+@click.option("--log-level", default=logging.WARNING, type=LogLevel())
+def start_forex_updater(conf, log_level):
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    # load conf
+    conf = _load_configs(conf)
+    dotenv.load_dotenv(conf["env_file"])
+    topic = conf["topic"]
+    redis_conf = conf["redis"]
+    redis_opts = conf["redis_opts"]
+    forex_conf = conf["forex"]
+
+    # TASKS #
+    async def tasks():
+        # clean exist keys
+        redis_client = redis.Redis(**redis_conf)
+        _keys = await redis_client.keys(f"{topic}/*")
+        _stream_keys = await redis_client.keys(f"{topic}-stream/*")
+        _ = await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
+
+        # set redis client
+        coroutines = []
+
+        # add http streamer task - 1. ForexApi
+        coroutines += [
+            ForexUpdater(
+                **forex_conf,
+                redis_client=redis_client,
+                redis_topic=topic,
+                redis_xadd_maxlen=redis_opts["xadd_maxlen"],
+            ).run()
+        ]
+
+        # run
+        start = time.time()
+        try:
+            await asyncio.gather(*coroutines)
+        except Exception as ex:
+            end = time.time()
+            print(f"start {start}, end {end}, ({end - start}s)")
+
+    # START TASKS
+    logger.info("[UBUD] Start Forex Updater")
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+    asyncio.run(tasks())
+
+
+################################################################
+# START COLLECTOR
+################################################################
+@ubud.command()
+@click.option("-c", "--conf", default="conf.yml", type=click.Path(exists=True))
+@click.option("--log-level", default=logging.WARNING, type=LogLevel())
+def start_collector(conf, log_level):
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    # load conf
+    conf = _load_configs(conf)
+    dotenv.load_dotenv(conf["env_file"])
+    topic = conf["topic"]
+    redis_conf = conf["redis"]
+    redis_opts = conf["redis_opts"]
+
+    # TASKS #
+    async def tasks():
+        # clean exist keys
+        redis_client = redis.Redis(**redis_conf)
+        _keys = await redis_client.keys(f"{topic}/*")
+        _stream_keys = await redis_client.keys(f"{topic}-stream/*")
+        _ = await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
+
+        # set redis client
+        coroutines = []
+
+        # add collector task (redis stream to redis db)
+        collector = Collector(redis_client=redis_client, redis_topic=topic, redis_expire_sec=redis_opts["expire_sec"])
+        coroutines += [collector.run()]
+
+        # run
+        start = time.time()
+        try:
+            await asyncio.gather(*coroutines)
+        except Exception as ex:
+            end = time.time()
+            print(f"start {start}, end {end}, ({end - start}s)")
+
+    # Sart Tasks
+    logger.info("[UBUD] Start Collector")
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+    asyncio.run(tasks())
+
+
+################################################################
+# STREAM ALL
+################################################################
+@ubud.command()
+@click.option("-c", "--conf", default="conf.yml", type=click.Path(exists=True))
+@click.option("--log-level", default=logging.WARNING, type=LogLevel())
 def start_stream(conf, log_level):
 
     # set log level
@@ -57,47 +313,20 @@ def start_stream(conf, log_level):
         format=DEFAULT_LOG_FORMAT,
     )
 
-    ################################################################
-    # Load Conf
-    ################################################################
-    with open(conf, "r") as f:
-        conf = yaml.load(f, Loader=yaml.Loader)
-
-    # load dotenv
+    # load conf
+    conf = _load_configs(conf)
     dotenv.load_dotenv(conf["env_file"])
-
-    # topic
     topic = conf["topic"]
-
-    # credential
-    credential = conf["credential"]
-    CREDS = dict()
-    for market, cred in credential.items():
-        CREDS.update({market: dict()})
-        for k, v in cred.items():
-            CREDS[market].update({k: os.getenv(v)})
-
-    # redis
+    credential = _load_credential(conf["credential"])
     redis_conf = conf["redis"]
     redis_opts = conf["redis_opts"]
-
-    # symbols
     symbols = conf["symbols"]
-
-    # websocket
     websocket_conf = conf["websocket"]
-
-    # balance
     balance_conf = conf["balance"]
-
-    # forex
     forex_conf = conf["forex"]
 
-    ################################################################
-    # TASK SETTINGS
-    ################################################################
+    # TASKS #
     async def tasks():
-
         # clean exist keys
         redis_client = redis.Redis(**redis_conf)
         _keys = await redis_client.keys(f"{topic}/*")
@@ -134,8 +363,8 @@ def start_stream(conf, log_level):
                         channel=channel,
                         symbols=symbols,
                         currencies=args["currency"],
-                        apiKey=CREDS[market]["apiKey"],
-                        apiSecret=CREDS[market]["apiSecret"],
+                        apiKey=credential[market]["apiKey"],
+                        apiSecret=credential[market]["apiSecret"],
                         handler=streamer,
                     ).run()
                 ]
@@ -145,8 +374,8 @@ def start_stream(conf, log_level):
             args = {} if args is None else args
             coroutines += [
                 BALANCE_UPDATER[market](
-                    apiKey=CREDS[market]["apiKey"],
-                    apiSecret=CREDS[market]["apiSecret"],
+                    apiKey=credential[market]["apiKey"],
+                    apiSecret=credential[market]["apiSecret"],
                     symbols=symbols,
                     **args,
                     redis_client=redis_client,
@@ -162,12 +391,8 @@ def start_stream(conf, log_level):
             end = time.time()
             print(f"start {start}, end {end}, ({end - start}s)")
 
-    ################################################################
     # START TASKS
-    ################################################################
     logger.info("[UBUD] Start Websocket Stream")
-
-    # uvloop will be used for loop engine
     loop = uvloop.new_event_loop()
     asyncio.set_event_loop(loop)
     asyncio.run(tasks())
