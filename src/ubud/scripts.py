@@ -12,6 +12,7 @@ from click_loglevel import LogLevel
 import redis.asyncio as redis
 
 from .api.unified import BithumbBalanceUpdater, ForexUpdater, FtxBalanceUpdater, UpbitBalanceUpdater
+from .connector import InfluxDBConnector
 from .redis import Collector, Streamer
 from .websocket import BithumbWebsocket, FtxWebsocket, UpbitWebsocket
 
@@ -246,6 +247,40 @@ def start_forex_updater(conf, log_level):
     loop = uvloop.new_event_loop()
     asyncio.set_event_loop(loop)
     asyncio.run(tasks())
+
+
+################################################################
+# START COLLECTOR
+################################################################
+@ubud.command()
+@click.option("-t", "--topic", default="ubud")
+@click.option("-s", "--secret", default="theone")
+@click.option("--log-level", default=logging.WARNING, type=LogLevel())
+def start_influxdb_sink(topic, secret, log_level):
+    from clutter.aws import get_secrets
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    # load conf
+    conf = get_secrets(secret)
+    influxdb_conf = {
+        "influxdb_url": conf["iu"],
+        "influxdb_token": conf["it"],
+        "influxdb_org": conf["io"],
+    }
+
+    redis_client = redis.Redis(decode_responses=True)
+    connector = InfluxDBConnector(redis_client=redis_client, redis_topic=topic, **influxdb_conf)
+
+    # Sart Tasks
+    logger.info("[UBUD] Start InfluxDB Sink")
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+    asyncio.run(connector.run())
 
 
 ################################################################

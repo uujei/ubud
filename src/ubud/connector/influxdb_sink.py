@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import traceback
 from datetime import datetime
 from fnmatch import fnmatch
 from time import time
@@ -20,14 +21,14 @@ from ..const import (
     ORDERTYPE,
     PRICE,
     QUANTITY,
+    RANK,
     SYMBOL,
     TS_MARKET,
     TS_MQ_RECV,
-    RANK,
     TS_MQ_SEND,
     TS_WS_RECV,
-    UTC,
     TS_WS_SEND,
+    UTC,
 )
 
 snap1 = []
@@ -65,7 +66,7 @@ class InfluxDBConnector:
         influxdb_org: str = "myorgt",
         influxdb_token: str = "mytoken",
         redis_xread_offset: str = "0",
-        redis_xread_count: int = 10,
+        redis_xread_count: int = 100,
     ):
         # properties
         self.redis_client = redis_client
@@ -122,6 +123,7 @@ class InfluxDBConnector:
 
                 except Exception as ex:
                     logger.warning(f"[CONNECTOR] Write InfluxDB FAILED - {ex}")
+                    traceback.print_exc()
 
                 await asyncio.sleep(0.001)
         except Exception as ex:

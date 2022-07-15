@@ -60,6 +60,7 @@ class Database:
             return sorted(registered_keys)
         return [k for key in self._ensure_list(patterns) for k in registered_keys if fnmatch(k, key)]
 
+    # [BALANCE]
     async def balance(self, market, symbol):
         _key = f"{self.redis_topic}/exchange/balance/{market}/{symbol}"
         return await self.get(_key)
@@ -70,6 +71,7 @@ class Database:
         values = await self.mget([f"{_prefix}{m}/{s}" for m in market for s in symbol])
         return {k.replace(_prefix, ""): v for k, v in values.items()}
 
+    # [ORDERBOOK]
     async def orderbook(self, market, symbol, currency, orderType, rank=1):
         _key = f"{self.redis_topic}/quotation/orderbook/{market}/{symbol}/{currency}/{orderType}/{rank}"
         return await self.get(_key)
@@ -91,6 +93,7 @@ class Database:
         )
         return {k.replace(_prefix, ""): v for k, v in values.items()}
 
+    # [TRADE]
     async def trade(self, market, symbol, currency, orderType):
         _key = f"{self.redis_topic}/quotation/trade/{market}/{symbol}/{currency}/{orderType}/0"
         return await self.get(_key)

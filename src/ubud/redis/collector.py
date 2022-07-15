@@ -15,6 +15,7 @@ class Collector:
         self,
         redis_client: redis.Redis,
         redis_topic: str = "ubud",
+        redis_patterns: list = None,
         redis_expire_sec: int = 600,
         redis_xread_offset: str = "0",
         redis_xread_count: int = 100,
@@ -22,6 +23,7 @@ class Collector:
         # properties
         self.redis_client = redis_client
         self.redis_topic = redis_topic
+        self.redis_patterns = redis_patterns
         self.redis_expire_sec = redis_expire_sec
         self.redis_xread_count = redis_xread_count
 
@@ -46,6 +48,8 @@ class Collector:
         try:
             while True:
                 stream_names = await self.redis_client.smembers(self._redis_stream_names_key)
+                if self.patterns is not None:
+                    stream_names = [n for n in stream_names if any([p in n for p in self.pattern])]
                 await asyncio.gather(*[self.collect(stream_name) for stream_name in stream_names])
         except Exception as ex:
             logger.error(ex)
