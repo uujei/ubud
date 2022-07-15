@@ -301,8 +301,54 @@ def start_collector(conf, log_level):
     conf = _load_configs(conf)
     dotenv.load_dotenv(conf["env_file"])
     topic = conf["topic"]
+    credential = _load_credential(conf["credential"])
     redis_conf = conf["redis"]
     redis_opts = conf["redis_opts"]
+
+    redis_client = redis.Redis(**redis_conf)
+
+    connector = InfluxDBConnector(
+        redis_client=redis_client,
+        redis_topic=topic,
+        influxdb_url=credential["influxdb"]["url"],
+        influxdb_org=credential["influxdb"]["org"],
+        influxdb_token=credential["influxdb"]["token"],
+        redis_xread_count=100,
+    )
+
+    # Sart Tasks
+    logger.info("[UBUD] Start Collector")
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+    asyncio.run(connector.run())
+
+
+################################################################
+# START INFLUXDB_SINK
+################################################################
+@ubud.command()
+@click.option("-c", "--conf", default="conf.yml", type=click.Path(exists=True))
+@click.option("--log-level", default=logging.WARNING, type=LogLevel())
+def start_influxdb_sink(conf, log_level):
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    # load conf
+    conf = _load_configs(conf)
+    dotenv.load_dotenv(conf["env_file"])
+    topic = conf["topic"]
+    redis_conf = conf["redis"]
+    redis_opts = conf["redis_opts"]
+    influxdb_conf = conf["influxdb"]
+
+    # 여기 작업 중!
+    #
+    #
+    #
 
     # TASKS #
     async def tasks():
