@@ -51,6 +51,13 @@ def _load_credential(credential: dict):
     return ret
 
 
+async def _clean_namespace(redis_client, topic):
+    # clean exist keys
+    _keys = await redis_client.keys(f"{topic}/*")
+    _stream_keys = await redis_client.keys(f"{topic}-stream/*")
+    await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
+
+
 ################################################################
 # GROUP UBUD
 ################################################################
@@ -250,7 +257,7 @@ def start_forex_updater(conf, log_level):
 
 
 ################################################################
-# START COLLECTOR
+# START INFLUXDB SINK
 ################################################################
 @ubud.command()
 @click.option("-t", "--topic", default="ubud")
@@ -287,9 +294,10 @@ def start_influxdb_sink(topic, secret, log_level):
 # START COLLECTOR
 ################################################################
 @ubud.command()
+@click.option("-p", "--patterns", default=None, type=list)
 @click.option("-c", "--conf", default="conf.yml", type=click.Path(exists=True))
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
-def start_collector(conf, log_level):
+def start_collector(patterns, conf, log_level):
 
     # set log level
     logging.basicConfig(
@@ -299,28 +307,28 @@ def start_collector(conf, log_level):
 
     # load conf
     conf = _load_configs(conf)
-    dotenv.load_dotenv(conf["env_file"])
     topic = conf["topic"]
-    credential = _load_credential(conf["credential"])
     redis_conf = conf["redis"]
     redis_opts = conf["redis_opts"]
 
-    redis_client = redis.Redis(**redis_conf)
+    async def tasks():
+        redis_client = redis.Redis(**redis_conf)
+        await _clean_namespace(redis_client=redis_client, topic=topic)
 
-    connector = InfluxDBConnector(
-        redis_client=redis_client,
-        redis_topic=topic,
-        influxdb_url=credential["influxdb"]["url"],
-        influxdb_org=credential["influxdb"]["org"],
-        influxdb_token=credential["influxdb"]["token"],
-        redis_xread_count=100,
-    )
+        collector = Collector(
+            redis_client=redis_client,
+            redis_topic=topic,
+            redis_patterns=patterns,
+            redis_expire_sec=redis_opts["expire_sec"],
+            redis_xread_count=100,
+        )
+        await collector.run()
 
     # Sart Tasks
     logger.info("[UBUD] Start Collector")
     loop = uvloop.new_event_loop()
     asyncio.set_event_loop(loop)
-    asyncio.run(connector.run())
+    asyncio.run(tasks())
 
 
 ################################################################

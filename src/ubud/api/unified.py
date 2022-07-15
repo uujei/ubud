@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import traceback
 from datetime import datetime
 
 import redis.asyncio as redis
@@ -113,21 +114,31 @@ class BalanceUpdater:
             try:
                 while True:
                     # get records
-                    records = await self.get()
-                    logger.debug(f"[BALANCE] HTTP Response: {records}")
+                    try:
+                        records = await self.get()
+                        logger.debug(f"[BALANCE] API Response: {records}")
+                    except Exception as ex:
+                        logger.warning(f"[BALANCE] API Request Failed - {ex}")
+                        traceback.print_exc()
+                        raise
 
                     # register key
-                    await asyncio.gather(*[self.xadd(k, v) for k, v in records.items()])
+                    try:
+                        await asyncio.gather(*[self.xadd(k, v) for k, v in records.items()])
+                    except Exception as ex:
+                        logger.warning(f"[BALANCE] REDIS XADD Failed - {ex}")
+                        traceback.print_exc()
+                        raise
 
                     # reset retry and sleep
                     _n_retry = 0
                     await asyncio.sleep(self.interval)
+
             except Exception as ex:
-                logger.warning(f"[BALANCE] Connection Error - {ex}")
                 _n_retry += 1
                 if _n_retry > 10:
-                    logger.error(f"[BALANCE] Connection Error 10 Times! - {ex}")
-                    raise ex
+                    logger.error(f"[BALANCE] FAILED 10 Times, Stop Taks! - {ex}")
+                    raise
                 await asyncio.sleep(1)
 
     async def xadd(self, k, v):

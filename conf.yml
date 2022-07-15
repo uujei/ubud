@@ -54,7 +54,6 @@ websocket:
       - orderbook
     currency:
       - KRW
-  
   bithumb:
     channel:
       - trade

@@ -67,7 +67,7 @@ class BithumbApi(BaseApi):
         body = await resp.json()
         # parse and valid provider's status code
         if body["status"] != "0000":
-            raise ReferenceError(f"[ERROR] STATUS CODE {body['status']} - {body['message']}")
+            raise ReferenceError(f"[ERROR] STATUS CODE {body['status']} - {body}")
         return body["data"]
 
     @staticmethod
@@ -80,8 +80,7 @@ class BithumbApi(BaseApi):
                 "per_min_remaining": None,
                 "per_min_replenish": None,
             }
-            logger.debug(f"[HTTP] Bithumb Rate Limit: {rate_limit}")
+            logger.debug(f"[API] Bithumb Rate Limit: {rate_limit}")
+            return rate_limit
         except Exception as ex:
-            logger.warning(ex)
-
-        return rate_limit
+            logger.warning(f"[API] Bithumb Update rate_limit FALIED - {ex}, headers: {headers}")
