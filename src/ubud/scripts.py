@@ -324,63 +324,6 @@ def start_collector(conf, log_level):
 
 
 ################################################################
-# START INFLUXDB_SINK
-################################################################
-@ubud.command()
-@click.option("-c", "--conf", default="conf.yml", type=click.Path(exists=True))
-@click.option("--log-level", default=logging.WARNING, type=LogLevel())
-def start_influxdb_sink(conf, log_level):
-
-    # set log level
-    logging.basicConfig(
-        level=log_level,
-        format=DEFAULT_LOG_FORMAT,
-    )
-
-    # load conf
-    conf = _load_configs(conf)
-    dotenv.load_dotenv(conf["env_file"])
-    topic = conf["topic"]
-    redis_conf = conf["redis"]
-    redis_opts = conf["redis_opts"]
-    influxdb_conf = conf["influxdb"]
-
-    # 여기 작업 중!
-    #
-    #
-    #
-
-    # TASKS #
-    async def tasks():
-        # clean exist keys
-        redis_client = redis.Redis(**redis_conf)
-        _keys = await redis_client.keys(f"{topic}/*")
-        _stream_keys = await redis_client.keys(f"{topic}-stream/*")
-        _ = await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
-
-        # set redis client
-        coroutines = []
-
-        # add collector task (redis stream to redis db)
-        collector = Collector(redis_client=redis_client, redis_topic=topic, redis_expire_sec=redis_opts["expire_sec"])
-        coroutines += [collector.run()]
-
-        # run
-        start = time.time()
-        try:
-            await asyncio.gather(*coroutines)
-        except Exception as ex:
-            end = time.time()
-            print(f"start {start}, end {end}, ({end - start}s)")
-
-    # Sart Tasks
-    logger.info("[UBUD] Start Collector")
-    loop = uvloop.new_event_loop()
-    asyncio.set_event_loop(loop)
-    asyncio.run(tasks())
-
-
-################################################################
 # STREAM ALL
 ################################################################
 @ubud.command()
