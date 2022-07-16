@@ -96,6 +96,6 @@ DT_FMT_FLOAT = "%Y-%m-%dT%H:%M:%S.%f%z"
 
 
 # timestamp to string datetime (w/ ISO format)
-def ts_to_strdt(ts, _float=False):
-    _dt_fmt = DT_FMT_FLOAT if _float else DT_FMT
-    return datetime.fromtimestamp(ts).astimezone(KST).strftime(_dt_fmt)
+def ts_to_strdt(ts, _float=True):
+    # _flaot is deprecated
+    return str(datetime.fromtimestamp(ts).astimezone(KST))

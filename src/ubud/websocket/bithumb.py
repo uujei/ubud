@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import sys
+import traceback
 from datetime import datetime
 from time import time
 from typing import Callable
@@ -17,6 +18,7 @@ from ..const import (
     DATETIME,
     DT_FMT,
     DT_FMT_FLOAT,
+    KST,
     MARKET,
     ORDERBOOK,
     ORDERTYPE,
@@ -149,8 +151,9 @@ class BithumbWebsocket(BaseWebsocket):
                 }
                 for r in content["list"]:
                     symbol_currency = _split_symbol(r["symbol"])
-                    trade_datetime = r["contDtm"].replace(" ", "T") + "+0900"
-                    ts_market = datetime.strptime(trade_datetime, DT_FMT_FLOAT).timestamp()
+                    _dt = datetime.fromisoformat(r["contDtm"]).astimezone(KST)
+                    trade_datetime = str(_dt)
+                    ts_market = _dt.timestamp()
                     msg = {
                         DATETIME: trade_datetime,
                         **base_msg,
@@ -166,14 +169,14 @@ class BithumbWebsocket(BaseWebsocket):
                     messages += [msg]
                     logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
             except Exception as ex:
-                logger.warn(f"[{__name__}] {ex}")
+                logger.warn(f"[WEBSOCKET] Bithumb Trade Parser Error - {ex}")
+                traceback.print_exc()
 
         return messages
 
     # [ORDERBOOK]
     async def orderbook_parser(self, body, ts_ws_recv=None):
         messages = []
-
         try:
             # parse and pub
             if "content" in body.keys():
@@ -219,7 +222,8 @@ class BithumbWebsocket(BaseWebsocket):
                     logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
 
         except Exception as ex:
-            logger.warning(f"[{__name__}] {ex}")
+            logger.warn(f"[WEBSOCKET] Bithumb Orderbook Parser Error - {ex}")
+            traceback.print_exc()
 
         return messages
 

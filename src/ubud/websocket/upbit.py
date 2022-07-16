@@ -127,7 +127,7 @@ class UpbitWebsocket(BaseWebsocket):
         # load body
         try:
             symbol_currency = _split_symbol(body["cd"])
-            ts_ws_send = int(body["tms"]) / 1e3
+            ts_ws_send = float(body["tms"]) / 1e3
             msg = {
                 DATETIME: ts_to_strdt(int(body["ttms"]) / 1e3),
                 MARKET: THIS_MARKET,
@@ -144,7 +144,7 @@ class UpbitWebsocket(BaseWebsocket):
             }
             logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
         except Exception as ex:
-            logger.warn(f"[{__name__}] {ex}")
+            logger.warn(f"[WEBSOCKET] Upbit Unknown Message: {body}")
 
         return [msg]
 
@@ -156,7 +156,7 @@ class UpbitWebsocket(BaseWebsocket):
             if "obu" in body.keys():
                 # base message
                 symbol_currency = _split_symbol(body["cd"])
-                ts_ws_send = int(body["tms"]) / 1e3
+                ts_ws_send = float(body["tms"]) / 1e3
                 base_msg = {
                     DATETIME: ts_to_strdt(ts_ws_send),
                     MARKET: THIS_MARKET,
@@ -190,8 +190,10 @@ class UpbitWebsocket(BaseWebsocket):
                 # TOTAL_BID_SIZE
                 msg = {**base_msg, ORDERTYPE: BID, QUANTITY: body["tbs"]}
                 logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+            else:
+                logger.warning(f"[WEBSOCKET] Upbit Unknown Message: {body}")
         except Exception as ex:
-            logger.warn(f"[{__name__}] {ex}")
+            logger.warn(f"[WEBSOCKET] Upbit Parse Error - {ex}")
         return messages
 
 

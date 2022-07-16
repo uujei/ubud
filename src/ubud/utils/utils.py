@@ -1,22 +1,21 @@
-# def order_unit_krw(krw):  # 코인 종류에 따른 주문 가격 int로 환산. 주문 넣을때 int로 정확한 값이 들어가야하기 때문.
+import math
 
 
-def old(krw):
-    #  if coin in listA:
-    if krw < 10:
-        return round(krw, 2)
-    if krw >= 10 and krw < 100:
-        return round(krw, 1)
-    if krw >= 100 and krw < 1000:
-        return round(krw, 0)
-    if krw >= 1000 and krw < 10000:
-        return round(krw * 2, -1) / 2
-    # if coin in listB:
-    if krw >= 10000 and krw < 100000:
-        return round(krw, -1)
-    if krw >= 100000 and krw < 1000000:
-        return round(krw * 2, -2) / 2
-    if krw >= 1000000 and krw < 10000000:
-        return round(krw * 2, -2) / 3
-    if krw >= 10000000:
-        return round(krw, -3)
+def get_order_unit(x):
+    """
+    [업비트] 코인 가격별 호가 표시 단위
+    https://upbitcs.zendesk.com/hc/ko/articles/4403838454809-%EA%B1%B0%EB%9E%98-%EC%9D%B4%EC%9A%A9-%EC%95%88%EB%82%B4
+    """
+    if x < 1_000:
+        return round(x, math.floor(3 - math.log(x, 10)))
+    if x < 10_000:
+        return round(x * 2, math.floor(3 - math.log(x, 10))) / 2
+    if x < 100_000:
+        return round(x, math.floor(4 - math.log(x, 10)))
+    if x < 500_000:
+        return round(x * 2, math.floor(4 - math.log(x, 10))) / 2
+    if x < 1_000_000:
+        return round(x, math.floor(4 - math.log(x, 10)))
+    if x < 2_000_000:
+        return round(x * 2, math.floor(4 - math.log(x, 10))) / 2
+    return round(x, math.floor(4 - math.log(x, 10)))

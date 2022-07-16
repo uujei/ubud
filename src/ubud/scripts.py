@@ -94,9 +94,6 @@ def start_websocket(conf, log_level):
     async def tasks():
         # clean exist keys
         redis_client = redis.Redis(**redis_conf)
-        _keys = await redis_client.keys(f"{topic}/*")
-        _stream_keys = await redis_client.keys(f"{topic}-stream/*")
-        _ = await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
 
         # set redis client
         coroutines = []
@@ -162,9 +159,6 @@ def start_balance_updater(conf, log_level):
     async def tasks():
         # clean exist keys
         redis_client = redis.Redis(**redis_conf)
-        _keys = await redis_client.keys(f"{topic}/*")
-        _stream_keys = await redis_client.keys(f"{topic}-stream/*")
-        _ = await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
 
         # set redis client
         coroutines = []
@@ -224,9 +218,6 @@ def start_forex_updater(conf, log_level):
     async def tasks():
         # clean exist keys
         redis_client = redis.Redis(**redis_conf)
-        _keys = await redis_client.keys(f"{topic}/*")
-        _stream_keys = await redis_client.keys(f"{topic}-stream/*")
-        _ = await asyncio.gather(*[redis_client.delete(k) for k in [*_keys, *_stream_keys]])
 
         # set redis client
         coroutines = []
@@ -294,10 +285,9 @@ def start_influxdb_sink(topic, secret, log_level):
 # START COLLECTOR
 ################################################################
 @ubud.command()
-@click.option("-p", "--patterns", default=None, type=list)
 @click.option("-c", "--conf", default="conf.yml", type=click.Path(exists=True))
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
-def start_collector(patterns, conf, log_level):
+def start_collector(conf, log_level):
 
     # set log level
     logging.basicConfig(
@@ -318,7 +308,6 @@ def start_collector(patterns, conf, log_level):
         collector = Collector(
             redis_client=redis_client,
             redis_topic=topic,
-            redis_patterns=patterns,
             redis_expire_sec=redis_opts["expire_sec"],
             redis_xread_count=100,
         )

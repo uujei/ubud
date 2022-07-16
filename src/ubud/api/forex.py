@@ -102,17 +102,3 @@ class ForexApi:
                 return resp
 
 
-################################################################
-# DEBUG
-################################################################
-if __name__ == "__main__":
-    import sys
-
-    logging.basicConfig(level=logging.DEBUG)
-
-    interval = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
-
-    redis_client = redis.Redis()
-    api = ForexApi(interval=interval, redis_client=redis_client, redis_topic="ubud")
-
-    asyncio.run(api.run())

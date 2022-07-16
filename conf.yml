@@ -1,6 +1,3 @@
-#
-
-
 # [Namespace]
 # 모든 redis key는 아래 namespace로 시작 (다른 작업과 겹치지 않게)
 topic: ubud
@@ -15,8 +12,10 @@ redis:
   port: 6379
   decode_responses: true
   
+# expire_sec가 지나면 데이터 사라짐
+#  - 너무 오래 지난 값을 사용하는 것 방지하기 위해
 redis_opts:
-  expire_sec: 300
+  expire_sec: 900
   xadd_maxlen: 100
 
 # [Credential]
@@ -71,7 +70,7 @@ websocket:
 # [Balance Updater]
 balance:
   upbit:
-  bithumb:
+  # bithumb:
   ftx:
 
 # [FOREX Updater]

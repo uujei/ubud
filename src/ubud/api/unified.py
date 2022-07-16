@@ -84,7 +84,6 @@ class BalanceUpdater:
         interval: float = 0.5,
         redis_client: redis.Redis = None,
         redis_topic: str = "ubud",
-        redis_expire_sec: int = 120,
         redis_xadd_maxlen: bool = 10,
         redis_xadd_approximate: bool = False,
     ):
@@ -94,7 +93,6 @@ class BalanceUpdater:
         self.interval = interval
         self.redis_client = redis_client
         self.redis_topic = redis_topic
-        self.redis_expire_sec = redis_expire_sec
         self.redis_xadd_maxlen = redis_xadd_maxlen
         self.redis_xadd_approximate = redis_xadd_approximate
 
@@ -157,7 +155,7 @@ class BalanceUpdater:
                 maxlen=self.redis_xadd_maxlen,
                 approximate=self.redis_xadd_approximate,
             )
-            logger.debug(f"[BALANCE] XADD {msg['name']} {msg['fields']}")
+            logger.info(f"[BALANCE] XADD {msg['name']} {msg['fields']}")
             if stream_name not in self._redis_stream_names:
                 await self.redis_client.sadd(self._redis_stream_names_key, stream_name)
                 self._redis_stream_names = await self.redis_client.smembers(self._redis_stream_names_key)
@@ -173,14 +171,13 @@ class UpbitBalanceUpdater(BalanceUpdater, UpbitApi):
 
     async def get(self):
         balances = await self.request(**self.ARGS)
-
         results = dict()
         _ = [results.update(self._parser(b)) for b in balances]
         return results
 
     def _parser(self, bal):
         symbol = bal["currency"]
-        if self.symbols is not None and symbol not in self.symbols:
+        if self.symbols is not None and symbol not in ["KRW", *self.symbols]:
             return {}
         free = float(bal["balance"])
         locked = float(bal["locked"])
@@ -202,9 +199,9 @@ class BithumbBalanceUpdater(BalanceUpdater, BithumbApi):
     async def get(self):
         balances = await self.request(**self.ARGS)
         if self.symbols is not None:
-            if "KRW" not in self.symbols:
-                self.symbols.append("KRW")
-            balances = {k: v for k, v in balances.items() if any([k.endswith(f"_{s.lower()}") for s in self.symbols])}
+            balances = {
+                k: v for k, v in balances.items() if any([k.endswith(f"_{s.lower()}") for s in ["KRW", *self.symbols]])
+            }
         results = dict()
         for k, v in balances.items():
             name, field_key = self._parser(k)
@@ -220,10 +217,6 @@ class BithumbBalanceUpdater(BalanceUpdater, BithumbApi):
 
 
 class FtxBalanceUpdater(BalanceUpdater, FtxApi):
-    """
-    여기 수정중!!! (get과 _parser ~ USD가 업데이트 안되어서)
-    """
-
     MARKET = "ftx"
     ARGS = {
         "path": "/wallet/balances",
@@ -240,16 +233,6 @@ class FtxBalanceUpdater(BalanceUpdater, FtxApi):
             for bal in balances
         }
 
-    #     for bal in balances:
-    #         results.update(self._parser(bal))
-    #     return results
-
-    # def _parser(self, bal):
-    #     symbol = bal["coin"]
-    #     total = float(bal["total"])
-    #     free = float(bal["free"])
-    #     return {f"{self.MARKET}/{symbol}": {"total": total, "locked": total - free, "free": free}}
-
 
 ################################################################
 # DEBUG
@@ -264,36 +247,39 @@ if __name__ == "__main__":
 
     redis_client = redis.Redis(decode_responses=True)
 
+    UPDATER = {
+        "upbit": UpbitBalanceUpdater,
+        "bithumb": BithumbBalanceUpdater,
+        "ftx": FtxBalanceUpdater,
+        "forex": ForexUpdater,
+    }
+
+    API_KEY = {
+        "upbit": {"apiKey": "ubk", "apiSecret": "ubs"},
+        "bithumb": {"apiKey": "btk", "apiSecret": "bts"},
+        "ftx": {"apiKey": "ftk", "apiSecret": "fts"},
+    }
+
     async def tasks():
         coros = []
 
-        upbit_updater = UpbitBalanceUpdater(
-            apiKey=secrets["ubk"],
-            apiSecret=secrets["ubs"],
-            interval=0.02,
-            redis_client=redis_client,
-            redis_topic="ubud",
-        )
-        coros += [upbit_updater.run()]
+        for target in sys.argv[1:]:
+            conf = {
+                "interval": 0.1,
+                "redis_client": redis_client,
+                "redis_topic": "ubud",
+            }
+            if target not in ["forex"]:
+                conf.update(
+                    {
+                        "apiKey": secrets[API_KEY[target]["apiKey"]],
+                        "apiSecret": secrets[API_KEY[target]["apiSecret"]],
+                        "symbols": ["BTC", "WAVES"],
+                    }
+                )
 
-        bithumb_updater = BithumbBalanceUpdater(
-            apiKey=secrets["btk"],
-            apiSecret=secrets["bts"],
-            symbols=["KRW", "BTC"],
-            interval=0.05,
-            redis_client=redis_client,
-            redis_topic="ubud",
-        )
-        coros += [bithumb_updater.run()]
-
-        ftx_updater = FtxBalanceUpdater(
-            apiKey=secrets["ftk"],
-            apiSecret=secrets["fts"],
-            interval=0.01,
-            redis_client=redis_client,
-            redis_topic="ubud",
-        )
-        coros += [ftx_updater.run()]
+            logger.info(conf)
+            coros += [UPDATER[target](**conf).run()]
 
         await asyncio.gather(*coros)
 

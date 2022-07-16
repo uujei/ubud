@@ -53,6 +53,8 @@ CHANNEL_PARAMS = {
 }
 AVAILABLE_CURRENCIES = ["AUD", "BRZ", "BTC", "EUR", "JPY", "TRYB", "USD", "USDT"]
 
+DT_FMT_FTX_SRC = "%Y-%m-%"
+
 ################################################################
 # Market Helpers
 ################################################################
@@ -164,7 +166,7 @@ class FtxWebsocket(BaseWebsocket):
                 data = body["data"]
                 for record in data:
                     msg = {
-                        DATETIME: record["time"],
+                        DATETIME: str(datetime.fromisoformat(record["time"]).astimezone(KST)),
                         **base_msg,
                         TRADE_SID: record["id"],
                         ORDERTYPE: _buy_sell(record["side"]),
@@ -178,6 +180,8 @@ class FtxWebsocket(BaseWebsocket):
                     }
                     messages += [msg]
                     logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+            if body["type"] == "error":
+                logger.warning(f"[WEBSOCKET] FTX Websocket Error - {body}")
         except Exception as ex:
             logger.warning(ex)
             traceback.print_exc()
@@ -191,7 +195,7 @@ class FtxWebsocket(BaseWebsocket):
                 symbol_currency = _split_symbol(body["market"])
                 data = body["data"]
                 base_msg = {
-                    DATETIME: datetime.fromtimestamp(data["time"]).astimezone(KST).strftime("%Y-%m-%dT%H:%M:%S.%f%z"),
+                    DATETIME: str(datetime.fromtimestamp(data["time"]).astimezone(KST)),
                     MARKET: THIS_MARKET,
                     API_CATEGORY: THIS_API_CATEGORY,
                     CHANNEL: ORDERBOOK,
@@ -222,6 +226,8 @@ class FtxWebsocket(BaseWebsocket):
                         }
                         messages += [msg]
                         logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+            if body["type"] == "error":
+                logger.warning(f"[WEBSOCKET] FTX Websocket Error - {body}")
         except Exception as ex:
             traceback.print_exc()
         return messages
@@ -278,7 +284,7 @@ if __name__ == "__main__":
     apiKey = os.environ["FTX_API_KEY"]
     apiSecret = os.environ["FTX_API_SECRET"]
 
-    CHANNELS = ["orderbook"]
+    CHANNELS = ["trade"]
 
     async def tasks():
         coros = [

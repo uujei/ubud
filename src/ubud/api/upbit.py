@@ -94,7 +94,6 @@ class UpbitApi(BaseApi):
                 "per_min_replenish": REPLENISH[_group]["per_min"],
             }
             logger.debug(f"[HTTP] Upbit Rate Limit: {rate_limit}")
+            return rate_limit
         except KeyError as e:
             logging.warn(f"NEW LIMIT HEADER GROUP FOUND {_group}")
-
-        return rate_limit
