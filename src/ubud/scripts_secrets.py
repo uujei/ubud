@@ -9,9 +9,9 @@ from clutter.aws import get_secrets
 
 import redis.asyncio as redis
 
-from .api.unified import BithumbBalanceUpdater, ForexUpdater, FtxBalanceUpdater, UpbitBalanceUpdater
+from .api.updater import BithumbBalanceUpdater, ForexUpdater, FtxBalanceUpdater, UpbitBalanceUpdater
 from .connector import InfluxDBConnector
-from .redis import Collector, Streamer
+from .redis import Collector, RedisStreamHandler, RedisSetHandler
 from .websocket import BithumbWebsocket, FtxWebsocket, UpbitWebsocket
 
 logger = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ def start_websocket(market, channels, symbols, currencies, topic, secrets, redis
         coroutines = []
 
         # add websocket streamer tasks
-        streamer = Streamer(
+        streamer = RedisStreamHandler(
             redis_client=redis_client,
             redis_topic=topic,
             redis_xadd_maxlen=redis_xadd_maxlen,

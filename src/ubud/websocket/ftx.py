@@ -25,6 +25,7 @@ from ..const import (
     ORDERTYPE,
     PRICE,
     QUANTITY,
+    MQ_SUBTOPICS,
     RANK,
     SYMBOL,
     TICKER,
@@ -157,20 +158,23 @@ class FtxWebsocket(BaseWebsocket):
         try:
             if body["type"] == "update":
                 symbol_currency = _split_symbol(body["market"])
-                base_msg = {
-                    MARKET: THIS_MARKET,
-                    API_CATEGORY: THIS_API_CATEGORY,
-                    CHANNEL: TRADE,
-                    **symbol_currency,
-                }
                 data = body["data"]
                 for record in data:
-                    msg = {
-                        DATETIME: str(datetime.fromisoformat(record["time"]).astimezone(KST)),
-                        **base_msg,
-                        TRADE_SID: record["id"],
+                    # Key (name)
+                    _key = {
+                        API_CATEGORY: THIS_API_CATEGORY,
+                        CHANNEL: TRADE,
+                        MARKET: THIS_MARKET,
+                        **symbol_currency,
                         ORDERTYPE: _buy_sell(record["side"]),
                         RANK: 0,
+                    }
+                    name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
+
+                    # Value (value)
+                    value = {
+                        DATETIME: str(datetime.fromisoformat(record["time"]).astimezone(KST)),
+                        TRADE_SID: record["id"],
                         PRICE: record["price"],
                         QUANTITY: record["size"],
                         TS_WS_SEND: datetime.fromisoformat(record["time"]).timestamp(),
@@ -178,13 +182,20 @@ class FtxWebsocket(BaseWebsocket):
                         "_side": record["side"],
                         "_liquidation": record["liquidation"],
                     }
+                    # Message
+                    msg = {"name": name, "value": value}
                     messages += [msg]
+
+                    # logging
                     logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+
             if body["type"] == "error":
                 logger.warning(f"[WEBSOCKET] FTX Websocket Error - {body}")
+
         except Exception as ex:
             logger.warning(ex)
             traceback.print_exc()
+
         return messages
 
     # ORDERBOOK
@@ -194,13 +205,6 @@ class FtxWebsocket(BaseWebsocket):
             if body["type"] == "update":
                 symbol_currency = _split_symbol(body["market"])
                 data = body["data"]
-                base_msg = {
-                    DATETIME: str(datetime.fromtimestamp(data["time"]).astimezone(KST)),
-                    MARKET: THIS_MARKET,
-                    API_CATEGORY: THIS_API_CATEGORY,
-                    CHANNEL: ORDERBOOK,
-                    **symbol_currency,
-                }
                 for _type, orderType in [("asks", ASK), ("bids", BID)]:
                     for price, quantity in data[_type]:
                         # get rank of orderbook
@@ -215,21 +219,37 @@ class FtxWebsocket(BaseWebsocket):
                         if rank is None:
                             continue
 
-                        msg = {
-                            **base_msg,
+                        # Key (name)
+                        _key = {
+                            API_CATEGORY: THIS_API_CATEGORY,
+                            CHANNEL: ORDERBOOK,
+                            MARKET: THIS_MARKET,
+                            **symbol_currency,
                             ORDERTYPE: orderType,
                             RANK: rank,
+                        }
+                        name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
+
+                        value = {
+                            DATETIME: str(datetime.fromtimestamp(data["time"]).astimezone(KST)),
                             PRICE: price,
                             QUANTITY: quantity,
                             TS_WS_SEND: data["time"],
                             TS_WS_RECV: ts_ws_recv,
                         }
+                        # Message
+                        msg = {"name": name, "value": value}
                         messages += [msg]
+
+                        # logging
                         logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+
             if body["type"] == "error":
                 logger.warning(f"[WEBSOCKET] FTX Websocket Error - {body}")
+
         except Exception as ex:
             traceback.print_exc()
+
         return messages
 
     # ORDERBOOK HELPER
@@ -284,7 +304,7 @@ if __name__ == "__main__":
     apiKey = os.environ["FTX_API_KEY"]
     apiSecret = os.environ["FTX_API_SECRET"]
 
-    CHANNELS = ["trade"]
+    CHANNELS = ["trade", "orderbook"]
 
     async def tasks():
         coros = [

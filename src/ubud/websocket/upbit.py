@@ -29,6 +29,7 @@ from ..const import (
     TS_WS_RECV,
     TS_MARKET,
     BOOKCOUNT,
+    MQ_SUBTOPICS,
     RANK,
     ts_to_strdt,
 )
@@ -124,25 +125,40 @@ class UpbitWebsocket(BaseWebsocket):
 
     # TRADE
     async def trade_parser(self, body, ts_ws_recv=None):
+        messages = []
+
         # load body
         try:
             symbol_currency = _split_symbol(body["cd"])
             ts_ws_send = float(body["tms"]) / 1e3
-            msg = {
-                DATETIME: ts_to_strdt(int(body["ttms"]) / 1e3),
-                MARKET: THIS_MARKET,
+
+            # Key (name)
+            _key = {
                 API_CATEGORY: THIS_API_CATEGORY,
                 CHANNEL: TRADE,
+                MARKET: THIS_MARKET,
                 **symbol_currency,
-                TRADE_SID: body["sid"],
                 ORDERTYPE: body["ab"].lower(),
                 RANK: 0,
+            }
+            name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
+
+            value = {
+                DATETIME: ts_to_strdt(int(body["ttms"]) / 1e3),
+                TRADE_SID: body["sid"],
                 PRICE: body["tp"],
                 QUANTITY: body["tv"],
                 TS_WS_SEND: ts_ws_send,
                 TS_WS_RECV: ts_ws_recv,
             }
+
+            # Message
+            msg = {"name": name, "value": value}
+            messages += [msg]
+
+            # logging
             logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+
         except Exception as ex:
             logger.warn(f"[WEBSOCKET] Upbit Unknown Message: {body}")
 
@@ -157,39 +173,36 @@ class UpbitWebsocket(BaseWebsocket):
                 # base message
                 symbol_currency = _split_symbol(body["cd"])
                 ts_ws_send = float(body["tms"]) / 1e3
-                base_msg = {
-                    DATETIME: ts_to_strdt(ts_ws_send),
-                    MARKET: THIS_MARKET,
-                    API_CATEGORY: THIS_API_CATEGORY,
-                    CHANNEL: ORDERBOOK,
-                    **symbol_currency,
-                }
+
                 # parse and pub
                 n = len(body["obu"])
                 for i, r in enumerate(body["obu"]):
                     # ASK
-                    for _p, _q, _TYPE in [("ap", "as", ASK), ("bp", "bs", BID)]:
-                        msg = {
-                            **base_msg,
-                            ORDERTYPE: _TYPE,
+                    for _p, _q, _ordertype in [("ap", "as", ASK), ("bp", "bs", BID)]:
+                        # Key (name)
+                        _key = {
+                            API_CATEGORY: THIS_API_CATEGORY,
+                            CHANNEL: ORDERBOOK,
+                            MARKET: THIS_MARKET,
+                            **symbol_currency,
+                            ORDERTYPE: _ordertype,
                             RANK: i + 1,
+                        }
+                        name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
+
+                        value = {
+                            DATETIME: ts_to_strdt(ts_ws_send),
                             PRICE: r[_p],
                             QUANTITY: r[_q],
                             TS_WS_SEND: ts_ws_send,
                             TS_WS_RECV: ts_ws_recv,
                         }
+                        # Message
+                        msg = {"name": name, "value": value}
                         messages += [msg]
+
+                        # logging
                         logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-
-                # TOTAL_ASK_SIZE
-                base_msg[CHANNEL] = f"{base_msg[CHANNEL]}_total_qty"
-                msg = {**base_msg, ORDERTYPE: ASK, RANK: 99, QUANTITY: body["tas"]}
-                logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
-                messages += [msg]
-
-                # TOTAL_BID_SIZE
-                msg = {**base_msg, ORDERTYPE: BID, QUANTITY: body["tbs"]}
-                logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
             else:
                 logger.warning(f"[WEBSOCKET] Upbit Unknown Message: {body}")
         except Exception as ex:

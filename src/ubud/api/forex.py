@@ -69,28 +69,12 @@ class ForexApi:
     def __init__(
         self,
         codes: str = "FRX.KRWUSD",
-        interval: float = 10.0,
-        redis_client: redis.Redis = None,
-        redis_topic: str = None,
-        redis_expire_sec: int = 10,
-        redis_xadd_maxlen: bool = 100,
-        redis_xadd_approximate: bool = False,
     ):
         self.codes = codes
-        self.interval = interval
-        self.redis_client = redis_client
-        self.redis_topic = redis_topic
-        self.redis_expire_sec = redis_expire_sec
-        self.redis_xadd_maxlen = redis_xadd_maxlen
-        self.redis_xadd_approximate = redis_xadd_approximate
-
-        self._redis_stream_names_key = f"{self.redis_topic}-stream/keys"
-        self._redis_stream_name = f"{self.redis_topic}-stream/forex/{self.codes}"
-        self._redis_field_key = f"{self.redis_topic}/forex/{self.codes}"
-        self._path = "/forex/recent"
+        self.route = "forex/recent"
 
     async def request(self):
-        url = f"{self.baseUrl}/{self.apiVersion}/{self._path.strip('/')}"
+        url = f"{self.baseUrl}/{self.apiVersion}/{self.route}"
         query = f"codes={self.codes}"
         url = "?".join([url, query])
         async with aiohttp.ClientSession() as client:
@@ -100,5 +84,3 @@ class ForexApi:
                     raise ReferenceError(f"status code: {resp.status}, message: {_text}")
                 resp = await resp.json()
                 return resp
-
-

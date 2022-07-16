@@ -5,7 +5,7 @@ import os
 import dotenv
 import redis.asyncio as redis
 from ubud.api.forex import ForexApi
-from ubud.api.unified import BithumbBalanceUpdater, FtxBalanceUpdater, UpbitBalanceUpdater
+from ubud.api.updater import BithumbBalanceUpdater, FtxBalanceUpdater, UpbitBalanceUpdater
 from ubud.redis import Collector, Streamer
 from ubud.websocket import BithumbWebsocket, FtxWebsocket, UpbitWebsocket
 

@@ -1,2 +1,2 @@
 from .collector import Collector
-from .streamer import Streamer
+from .handlers import RedisStreamHandler, RedisSetHandler

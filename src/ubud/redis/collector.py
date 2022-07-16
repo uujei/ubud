@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-
+from typing import Callable
 import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
@@ -15,30 +15,29 @@ class Collector:
         self,
         redis_client: redis.Redis,
         redis_topic: str = "ubud",
+        redis_categories: list = ["exchange", "forex", "quotation"],
         redis_expire_sec: int = 600,
-        redis_xread_count: int = 20,
+        redis_xread_count: int = 300,
         redis_smember_interval: float = 5.0,
+        handler: Callable = None,
     ):
         # properties
         self.redis_client = redis_client
         self.redis_topic = redis_topic
+        self.redis_categories = [f"{self.redis_topic}-stream/{cat}" for cat in redis_categories]
         self.redis_expire_sec = redis_expire_sec
         self.redis_xread_count = redis_xread_count
         self.redis_smember_interval = redis_smember_interval
 
+        # handler
+        self.handler = handler
+
         # stream management
-        self._redis_stream_name = f"{self.redis_topic}-stream"
         self._redis_stream_names_key = f"{self.redis_topic}-stream/keys"
         self._redis_stream_offset = dict()
 
-        # db management
-        self._redis_keys = set()
-        self._redis_keys_key = f"{self.redis_topic}/keys"
-
-        # refresh
-        # [NOTE]
-        #   stream-key를 매번 조회하는 것이 리소스에 크게 부담되어 Refresh 주기 설정
-        #   (매 loop마다 조회할 때 대비 CPU 사용률 20~30%p 가량 감소)
+        # [NOTE] refresh
+        # stream list update가 리소스에 부담되어 주기 설정, 매번 update할 때보다 CPU 사용률 20~30% 가량 감소
         self._last_refresh = time.time() - redis_smember_interval
 
     async def run(self):
@@ -49,46 +48,46 @@ class Collector:
                     self.update_stream_names(),
                     *[self.collect(name=s, offset=o) for s, o in self._redis_stream_offset.items()],
                 )
+                await asyncio.sleep(0.001)
         except Exception as ex:
             logger.error(f"[COLLECTOR] Stop Running - {ex}")
         finally:
             await asyncio.sleep(1)
 
-    async def update_stream_names(self):
-        _last_refresh = time.time()
-        if _last_refresh - self._last_refresh < self.redis_smember_interval:
-            return
-        self._last_refresh = _last_refresh
-        _stream_names = await self.redis_client.smembers(self._redis_stream_names_key)
-        for s in _stream_names:
-            if s not in self._redis_stream_offset.keys():
-                offset = self._get_offset()
-                logger.debug(f"[COLLECTOR] Register New Stream {s} with Offset {offset}")
-                self._redis_stream_offset.update({s: offset})
-
     async def collect(self, name, offset):
         # do job
         streams = await self.redis_client.xread({name: offset}, count=self.redis_xread_count, block=1)
         if len(streams) > 0:
+            messages = []
             for _, stream in streams:
-                for _offset, data in stream:
-                    k, v = data["name"], data["value"]
-                    try:
-                        logger.info(f"[COLLECTOR] SET {k}, {v}, EXPIRE {self.redis_expire_sec}")
-                        await self.redis_client.set(name=k, value=v, ex=self.redis_expire_sec)
-                    except Exception as ex:
-                        logger.warning(f"[COLLECTOR] Redis SET Failed - {ex}")
-            # update key only for last data ~ because stream name and key are paired
-            if k not in self._redis_keys:
-                logger.info(f"[COLLECTOR] New Key '{k}' Found, SADD {self._redis_keys_key}, {k}")
-                await self.redis_client.sadd(self._redis_keys_key, k)
-                self._redis_keys = await self.redis_client.smembers(self._redis_keys_key)
+                for _offset, msg in stream:
+                    messages += [msg]
+            if self.handler is not None:
+                try:
+                    self.handler(messages)
+                except Exception as ex:
+                    logger.warning(f"[COLLECTOR] Handler Failed - {ex}")
         else:
             _offset = self._get_offset()
 
         # update stream offset only for last idx
         logger.debug(f"[COLLECTOR] Update Stream Offset {name}, {_offset}")
         self._redis_stream_offset.update({name: _offset})
+
+    async def update_stream_names(self):
+        last_refresh = time.time()
+        if last_refresh - self._last_refresh < self.redis_smember_interval:
+            return
+        self._last_refresh = last_refresh
+        stream_names = await self.redis_client.smembers(self._redis_stream_names_key)
+
+        # 지정한 category에 속하는 stream만 구독
+        stream_names = [s for s in stream_names if any([s.startswith(c) for c in self.redis_categories])]
+        for stream_name in stream_names:
+            if stream_name not in self._redis_stream_offset.keys():
+                offset = self._get_offset()
+                logger.debug(f"[COLLECTOR] Register New Stream {stream_name} with Offset {offset}")
+                self._redis_stream_offset.update({stream_name: offset})
 
     @staticmethod
     def _get_offset():

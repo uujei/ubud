@@ -17,6 +17,7 @@ from ..const import (
     CURRENCY,
     DATETIME,
     DT_FMT,
+    TS_MQ_SEND,
     DT_FMT_FLOAT,
     KST,
     MARKET,
@@ -32,6 +33,7 @@ from ..const import (
     TS_MARKET,
     TS_WS_RECV,
     TS_WS_SEND,
+    MQ_SUBTOPICS,
     ts_to_strdt,
 )
 from .base import BaseWebsocket
@@ -144,30 +146,40 @@ class BithumbWebsocket(BaseWebsocket):
         if "content" in body.keys():
             try:
                 content = body["content"]
-                base_msg = {
-                    MARKET: THIS_MARKET,
-                    API_CATEGORY: THIS_API_CATEGORY,
-                    CHANNEL: TRADE,
-                }
                 for r in content["list"]:
                     symbol_currency = _split_symbol(r["symbol"])
                     _dt = datetime.fromisoformat(r["contDtm"]).astimezone(KST)
-                    trade_datetime = str(_dt)
+                    trade_datetime = _dt.isoformat(timespec="microseconds")
                     ts_market = _dt.timestamp()
-                    msg = {
-                        DATETIME: trade_datetime,
-                        **base_msg,
+
+                    # Key (name)
+                    _key = {
+                        API_CATEGORY: THIS_API_CATEGORY,
+                        CHANNEL: TRADE,
+                        MARKET: THIS_MARKET,
                         **symbol_currency,
                         ORDERTYPE: ASK if r["buySellGb"] == "1" else BID,
                         RANK: 0,
+                    }
+                    name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
+
+                    # Value (value)
+                    value = {
+                        DATETIME: trade_datetime,
                         PRICE: float(r["contPrice"]),
                         QUANTITY: float(r["contQty"]),
                         AMOUNT: float(r["contAmt"]),
                         TS_MARKET: ts_market,
                         TS_WS_RECV: ts_ws_recv,
                     }
+
+                    # Message
+                    msg = {"name": name, "value": value}
                     messages += [msg]
+
+                    # logging
                     logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+
             except Exception as ex:
                 logger.warn(f"[WEBSOCKET] Bithumb Trade Parser Error - {ex}")
                 traceback.print_exc()
@@ -182,12 +194,7 @@ class BithumbWebsocket(BaseWebsocket):
             if "content" in body.keys():
                 content = body["content"]
                 ts_ws_send = int(content["datetime"]) / 1e6
-                base_msg = {
-                    DATETIME: ts_to_strdt(ts_ws_send),
-                    MARKET: THIS_MARKET,
-                    API_CATEGORY: THIS_API_CATEGORY,
-                    CHANNEL: ORDERBOOK,
-                }
+
                 for r in content["list"]:
                     symbol_currency = _split_symbol(r["symbol"])
                     price = float(r["price"])
@@ -206,19 +213,32 @@ class BithumbWebsocket(BaseWebsocket):
                     if rank is None:
                         continue
 
-                    # generaete message
-                    msg = {
-                        **base_msg,
+                    # Key (name)
+                    _key = {
+                        API_CATEGORY: THIS_API_CATEGORY,
+                        CHANNEL: ORDERBOOK,
+                        MARKET: THIS_MARKET,
                         **symbol_currency,
                         ORDERTYPE: r["orderType"],
                         RANK: rank,
+                    }
+                    name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
+
+                    # generaete message
+                    value = {
+                        DATETIME: ts_to_strdt(ts_ws_send),
                         PRICE: price,
                         QUANTITY: quantity,
                         BOOK_COUNT: int(r["total"]),
                         TS_WS_SEND: ts_ws_send,
                         TS_WS_RECV: ts_ws_recv,
                     }
+
+                    # Message
+                    msg = {"name": name, "value": value}
                     messages += [msg]
+
+                    # logging
                     logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
 
         except Exception as ex:
@@ -270,7 +290,7 @@ if __name__ == "__main__":
     log_handler = logging.StreamHandler()
     logger.addHandler(log_handler)
 
-    CHANNELS = ["orderbook"]
+    CHANNELS = ["trade"]
     SYMBOLS = ["BTC"]
 
     async def tasks():
