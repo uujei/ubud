@@ -98,30 +98,32 @@ class InfluxdDBConnector:
         # collect
         try:
             while True:
+                records = []
                 try:
                     await self.update_streams()
                     Points = await asyncio.gather(
                         *[self.connect(name, offset) for name, offset in self._redis_stream_offset.items()]
                     )
                     Points = filter(lambda x: x is not None, Points)
+                    records += [p for points in Points for p in points]
                     await asyncio.sleep(0.01)
                 except Exception as ex:
                     logger.warning(f"[INFLUXDB] Gather Points FAILED - {ex}")
 
-                try:
-                    async with InfluxDBClientAsync(**self.influxdb_conf) as client:
-                        write_api = client.write_api()
-                        records = [p for points in Points for p in points]
-                        ack = await write_api.write(self.redis_topic, self.influxdb_org, records)
-                        if not ack:
-                            raise
-                        _sample = records[0] if len(records) > 0 else "-"
-                        logger.info(
-                            f"[INFLUXDB] Write {len(records):4d} Points into Bucket {self.redis_topic}, Sample {_sample}"
-                        )
-                except Exception as ex:
-                    logger.warning(f"[INFLUXDB] Write InfluxDB FAILED - {ex}")
-                    traceback.print_exc()
+                if len(records) > 0:
+                    try:
+                        async with InfluxDBClientAsync(**self.influxdb_conf) as client:
+                            write_api = client.write_api()
+                            ack = await write_api.write(self.redis_topic, self.influxdb_org, records)
+                            if not ack:
+                                raise
+                            _sample = records[0] if len(records) > 0 else "-"
+                            logger.info(
+                                f"[INFLUXDB] Write {len(records):4d} Points into Bucket {self.redis_topic}, Sample {_sample}"
+                            )
+                    except Exception as ex:
+                        logger.warning(f"[INFLUXDB] Write InfluxDB FAILED - {ex}")
+                        traceback.print_exc()
 
                 await asyncio.sleep(0.001)
         except Exception as ex:

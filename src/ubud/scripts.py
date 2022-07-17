@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 import redis
 
 from .stream import stream_balance_api, stream_forex_api, stream_websocket, connect_influxdb
-from .utils.app import repr_conf
+from .utils.app import repr_conf, parse_redis_addr
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -330,7 +330,8 @@ def start_stream(
             await asyncio.gather(*coroutines)
 
     # clean redis before start
-    with redis.Redis(decode_responses=True) as r:
+    redis_conf = parse_redis_addr(redis_addr)
+    with redis.Redis(**redis_conf) as r:
         _clean_namespace(redis_client=r, topic=redis_topic)
 
     # Redirecting Ray Log to Host and init ray
