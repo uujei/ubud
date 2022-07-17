@@ -2,37 +2,39 @@ import asyncio
 import json
 import logging
 import sys
+from datetime import datetime
 from time import time
 from typing import Callable
 
-from .base import BaseWebsocket
 from ..const import (
     AMOUNT,
-    ASK,
     API_CATEGORY,
+    ASK,
     BID,
     BOOK_COUNT,
+    BOOKCOUNT,
+    CHANNEL,
     CURRENCY,
     DATETIME,
+    KST,
     MARKET,
+    MQ_SUBTOPICS,
     ORDERBOOK,
     ORDERTYPE,
     PRICE,
     QUANTITY,
-    CHANNEL,
+    RANK,
     SYMBOL,
     TICKER,
     TRADE,
     TRADE_DATETIME,
     TRADE_SID,
-    TS_WS_SEND,
-    TS_WS_RECV,
     TS_MARKET,
-    BOOKCOUNT,
-    MQ_SUBTOPICS,
-    RANK,
+    TS_WS_RECV,
+    TS_WS_SEND,
     ts_to_strdt,
 )
+from .base import BaseWebsocket
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +132,7 @@ class UpbitWebsocket(BaseWebsocket):
         # load body
         try:
             symbol_currency = _split_symbol(body["cd"])
+            dt = datetime.fromtimestamp(float(body["sid"]) / 1e6).astimezone(KST).isoformat(timespec="microseconds")
             ts_ws_send = float(body["tms"]) / 1e3
 
             # Key (name)
@@ -143,8 +146,9 @@ class UpbitWebsocket(BaseWebsocket):
             }
             name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
 
+            # DATETIME으로 ttms 대신 trade sid 사용 (체결 순서를 microseconds로)
             value = {
-                DATETIME: ts_to_strdt(int(body["ttms"]) / 1e3),
+                DATETIME: dt,
                 TRADE_SID: body["sid"],
                 PRICE: body["tp"],
                 QUANTITY: body["tv"],
@@ -214,14 +218,25 @@ class UpbitWebsocket(BaseWebsocket):
 # DEBUG RUN
 ################################################################
 if __name__ == "__main__":
+    import sys
+
     logger.setLevel(logging.DEBUG)
     log_handler = logging.StreamHandler()
     logger.addHandler(log_handler)
 
-    CHANNELS = ["orderbook", "trade"]
+    # DEBUG EXAMPLE
+    # python -m src.ubud.upbit trade,orderbook BTC,WAVES
+    if len(sys.argv) > 1:
+        channels = sys.argv[1].split(",")
+    else:
+        channels = ["orderbook", "trade"]
+    if len(sys.argv) > 2:
+        symbols = sys.argv[2].split(",")
+    else:
+        symbols = ["BTC", "WAVES"]
 
     async def tasks():
-        coros = [UpbitWebsocket(channel=c, symbols=["BTC", "ETH", "WAVES"]).run() for c in CHANNELS]
+        coros = [UpbitWebsocket(channel=c, symbols=symbols).run() for c in channels]
         await asyncio.gather(*coros)
 
     asyncio.run(tasks())

@@ -5,7 +5,7 @@ import logging
 import sys
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, DefaultDict, Deque, Dict, List, Optional, Tuple
 
 import websockets
@@ -126,6 +126,10 @@ class FtxWebsocket(BaseWebsocket):
         # HANDLER
         self.handler = handler
 
+        # FTX는 milliseconds 내에서 수 건의 체결 발생 ~ 중복 datetime 있으면 1 millisecond씩 더해서 회피
+        self._last_trade_dt = dict()  # datetime.now(tz=KST)
+        self._n_duplicated_dt = dict()
+
         # Bithumb, FTX는 변경호가를 제공 ~ Store 필요
         self._orderbook_len = 15
         self._orderbook = dict()
@@ -160,6 +164,7 @@ class FtxWebsocket(BaseWebsocket):
                 symbol_currency = _split_symbol(body["market"])
                 data = body["data"]
                 for record in data:
+
                     # Key (name)
                     _key = {
                         API_CATEGORY: THIS_API_CATEGORY,
@@ -171,9 +176,27 @@ class FtxWebsocket(BaseWebsocket):
                     }
                     name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
 
+                    # avoid duplicated datetime
+                    trade_dt = datetime.fromisoformat(record["time"]).astimezone(KST)
+
+                    if name not in self._last_trade_dt.keys():
+                        self._last_trade_dt[name] = trade_dt - timedelta(microseconds=1)
+
+                    if name not in self._n_duplicated_dt.keys():
+                        self._n_duplicated_dt[name] = 0
+
+                    if trade_dt == self._last_trade_dt[name]:
+                        self._n_duplicated_dt[name] += 1
+                    else:
+                        self._n_duplicated_dt[name] = 0
+
+                    self._last_trade_dt[name] = trade_dt
+                    seq_us = self._n_duplicated_dt[name]
+                    dt = (trade_dt + timedelta(microseconds=seq_us)).isoformat(timespec="microseconds")
+
                     # Value (value)
                     value = {
-                        DATETIME: str(datetime.fromisoformat(record["time"]).astimezone(KST)),
+                        DATETIME: dt,
                         TRADE_SID: record["id"],
                         PRICE: record["price"],
                         QUANTITY: record["size"],
@@ -230,8 +253,9 @@ class FtxWebsocket(BaseWebsocket):
                         }
                         name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
 
+                        dt = datetime.fromtimestamp(data["time"]).astimezone(KST).isoformat(timespec="microseconds")
                         value = {
-                            DATETIME: str(datetime.fromtimestamp(data["time"]).astimezone(KST)),
+                            DATETIME: dt,
                             PRICE: price,
                             QUANTITY: quantity,
                             TS_WS_SEND: data["time"],
@@ -248,6 +272,7 @@ class FtxWebsocket(BaseWebsocket):
                 logger.warning(f"[WEBSOCKET] FTX Websocket Error - {body}")
 
         except Exception as ex:
+            logger.error(f"[WEBSOCKET] Unknown Error EXIT! - {ex}")
             traceback.print_exc()
 
         return messages
@@ -291,26 +316,31 @@ class FtxWebsocket(BaseWebsocket):
 # DEBUG RUN
 ################################################################
 if __name__ == "__main__":
+    import sys
     import os
-
     import dotenv
 
     dotenv.load_dotenv()
+    apiKey = os.environ["FTX_API_KEY"]
+    apiSecret = os.environ["FTX_API_SECRET"]
 
     logger.setLevel(logging.DEBUG)
     log_handler = logging.StreamHandler()
     logger.addHandler(log_handler)
 
-    apiKey = os.environ["FTX_API_KEY"]
-    apiSecret = os.environ["FTX_API_SECRET"]
-
-    CHANNELS = ["trade", "orderbook"]
+    # DEBUG EXAMPLE
+    # python -m src.ubud.upbit trade,orderbook BTC,WAVES
+    if len(sys.argv) > 1:
+        channels = sys.argv[1].split(",")
+    else:
+        channels = ["orderbook", "trade"]
+    if len(sys.argv) > 2:
+        symbols = sys.argv[2].split(",")
+    else:
+        symbols = ["BTC", "WAVES"]
 
     async def tasks():
-        coros = [
-            FtxWebsocket(channel=c, symbols=["BTC"], currencies=["USD"], apiKey=apiKey, apiSecret=apiSecret).run()
-            for c in CHANNELS
-        ]
+        coros = [FtxWebsocket(apiKey=apiKey, apiSecret=apiSecret, channel=c, symbols=symbols).run() for c in channels]
         await asyncio.gather(*coros)
 
     asyncio.run(tasks())

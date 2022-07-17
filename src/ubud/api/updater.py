@@ -25,8 +25,10 @@ class Updater(abc.ABC):
     def __init__(
         self,
         interval: float = 0.5,
+        handler: Callable = None,
     ):
         self.interval = interval
+        self.handler = handler
 
     async def run(self):
         _n_retry = 0
@@ -105,7 +107,7 @@ class ForexUpdater(Updater, ForexApi):
             msg = {
                 "name": "/".join([self.route, self.codes]),
                 "value": {
-                    "datetime": datetime.fromtimestamp(r["timestamp"] / 1e3)
+                    DATETIME: datetime.fromtimestamp(r["timestamp"] / 1e3)
                     .astimezone(KST)
                     .isoformat(timespec="milliseconds"),
                     **{k: v for k, v in r.items() if k.endswith("Price")},
@@ -156,8 +158,13 @@ class UpbitBalanceUpdater(BalanceUpdater, UpbitApi):
             free = float(r["balance"])
             locked = float(r["locked"])
             msg = {
-                "name": f"balance/{self.MARKET}/{symbol}",
-                "value": {"total": free + locked, "locked": locked, "free": free},
+                "name": f"exchange/balance/{self.MARKET}/{symbol}",
+                "value": {
+                    DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds")),
+                    "total": free + locked,
+                    "locked": locked,
+                    "free": free,
+                },
             }
 
             logger.debug(f"[UPDATER] Upbit Balance Message Parsed: {msg}")
@@ -191,8 +198,9 @@ class BithumbBalanceUpdater(BalanceUpdater, BithumbApi):
 
         messages = []
         for symbol, value in holder.items():
+            value.update({DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds"))})
             msg = {
-                "name": f"balance/{self.MARKET}/{symbol.upper()}",
+                "name": f"exchange/balance/{self.MARKET}/{symbol.upper()}",
                 "value": value,
             }
 
@@ -213,7 +221,7 @@ class FtxBalanceUpdater(BalanceUpdater, FtxApi):
         messages = []
         for r in records:
             msg = {
-                "name": f"balance/{self.MARKET}/{r['coin']}",
+                "name": f"exchange/balance/{self.MARKET}/{r['coin']}",
                 "value": {
                     DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds")),
                     "total": float(r["total"]),
@@ -236,7 +244,7 @@ if __name__ == "__main__":
 
     from clutter.aws import get_secrets
 
-    from ..redis.handlers import RedisSetHandler, RedisStreamHandler
+    from ..redis.handler import RedisSetHandler, RedisStreamHandler
 
     secrets = get_secrets("theone")
     logging.basicConfig(level=logging.DEBUG)

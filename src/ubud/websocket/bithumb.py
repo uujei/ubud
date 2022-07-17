@@ -286,15 +286,25 @@ class BithumbWebsocket(BaseWebsocket):
 # DEBUG RUN
 ################################################################
 if __name__ == "__main__":
+    import sys
+
     logger.setLevel(logging.DEBUG)
     log_handler = logging.StreamHandler()
     logger.addHandler(log_handler)
 
-    CHANNELS = ["trade"]
-    SYMBOLS = ["BTC"]
+    # DEBUG EXAMPLE
+    # python -m src.ubud.upbit trade,orderbook BTC,WAVES
+    if len(sys.argv) > 1:
+        channels = sys.argv[1].split(",")
+    else:
+        channels = ["orderbook", "trade"]
+    if len(sys.argv) > 2:
+        symbols = sys.argv[2].split(",")
+    else:
+        symbols = ["BTC", "WAVES"]
 
     async def tasks():
-        coros = [BithumbWebsocket(channel=c, symbols=SYMBOLS).run() for c in CHANNELS]
+        coros = [BithumbWebsocket(channel=c, symbols=symbols).run() for c in channels]
         await asyncio.gather(*coros)
 
     asyncio.run(tasks())
