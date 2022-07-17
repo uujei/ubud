@@ -2,6 +2,7 @@ import logging
 import asyncio
 import redis.asyncio as redis
 
+from ..utils.app import parse_redis_addr, split_delim
 from ..api.updater import BithumbBalanceUpdater, ForexUpdater, FtxBalanceUpdater, UpbitBalanceUpdater
 from ..redis import RedisStreamHandler
 
@@ -36,16 +37,10 @@ async def stream_balance_api(
     """
 
     # correct input
-    symbols = [x.strip() for x in symbols.split(",")]
+    symbols = split_delim(symbols)
 
     # redis_conf
-    redis_conf = {
-        "host": redis_addr.split(":")[0],
-        "port": redis_addr.split(":")[-1],
-        "decode_responses": True,
-    }
-
-    # set redis client
+    redis_conf = parse_redis_addr(redis_addr)
     redis_client = redis.Redis(**redis_conf)
 
     # handler
@@ -63,7 +58,6 @@ async def stream_balance_api(
         "interval": interval,
         "handler": handler,
     }
-    logger.info(f"[STREAM] Balance Updater Conf: {conf}")
 
     # coroutine
     updater = BALANCE_UPDATER[market](**conf)
@@ -81,14 +75,8 @@ async def stream_forex_api(
     redis_xadd_maxlen: int = 100,
 ):
 
-    # load conf
-    redis_conf = {
-        "host": redis_addr.split(":")[0],
-        "port": redis_addr.split(":")[-1],
-        "decode_responses": True,
-    }
-
-    # clean exist keys
+    # redis_conf
+    redis_conf = parse_redis_addr(redis_addr)
     redis_client = redis.Redis(**redis_conf)
 
     # handler
@@ -104,7 +92,6 @@ async def stream_forex_api(
         "interval": interval,
         "handler": handler,
     }
-    logger.info(f"[STREAM] Forex Updater Conf: {conf}")
 
     # coroutine
     updater = ForexUpdater(**conf)

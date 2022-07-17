@@ -6,11 +6,12 @@ import click
 import uvloop
 from click_loglevel import LogLevel
 from clutter.aws import get_secrets
-
-import redis
 from dotenv import load_dotenv
 
-from .stream import stream_balance_api, stream_forex_api, stream_websocket
+import redis
+
+from .stream import stream_balance_api, stream_forex_api, stream_websocket, connect_influxdb
+from .utils.app import repr_conf
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -47,12 +48,22 @@ def load_secret(secret_key):
             "upbit": {"apiKey": os.getenv("UPBIT_API_KEY"), "apiSecret": os.getenv("UPBIT_API_SECRET")},
             "bithumb": {"apiKey": os.getenv("BITHUMB_API_KEY"), "apiSecret": os.getenv("BITHUMB_API_SECRET")},
             "ftx": {"apiKey": os.getenv("FTX_API_KEY"), "apiSecret": os.getenv("FTX_API_SECRET")},
+            "influxdb": {
+                "influxdb_url": os.getenv("INFLUXDB_URL"),
+                "influxdb_org": os.getenv("INFLUXDB_ORG"),
+                "influxdb_token": os.getenv("INFLUXDB_TOKEN"),
+            },
         }
     _secret = get_secrets(secret_key)
     return {
         "upbit": {"apiKey": _secret["ubk"], "apiSecret": _secret["ubs"]},
         "bithumb": {"apiKey": _secret["btk"], "apiSecret": _secret["bts"]},
         "ftx": {"apiKey": _secret["ftk"], "apiSecret": _secret["fts"]},
+        "influxdb": {
+            "influxdb_url": _secret["iu"],
+            "influxdb_org": _secret["io"],
+            "influxdb_token": _secret["it"],
+        },
     }
 
 
@@ -62,15 +73,6 @@ def filter_available_currencies(market, currencies):
         if c.strip() in AVAILABLE_CURRENCIES[market]:
             _currencies += [c]
     return ",".join(_currencies)
-
-
-def repr_conf(x):
-    _x = {k: v for k, v in x.items() if k != "secret"}
-    _secret = x.get("secret")
-    if _secret is not None:
-        _s = ", ".join([f"{k}({v['apiKey'][:4]}****/{v['apiSecret'][:4]}****)" for k, v in _secret.items()])
-        _x.update({"secret": _s})
-    return ", ".join([f"{k}: {str(v)}" for k, v in _x.items()])
 
 
 ################################################################
@@ -123,7 +125,7 @@ def start_websocket_stream(
                 "redis_xadd_maxlen": redis_xadd_maxlen,
                 "secret": secret,
             }
-            logger.info(f"[UBUD] Start Websocket Stream with Conf: {repr_conf(conf)}")
+            logger.info(f"[UBUD] Start Websocket Stream - {repr_conf(conf)}")
             coroutines += [stream_websocket(**conf)]
         try:
             await asyncio.gather(*coroutines)
@@ -177,7 +179,7 @@ def start_balance_stream(market, symbols, interval, redis_topic, redis_addr, red
                 "redis_xadd_maxlen": redis_xadd_maxlen,
                 "secret": secret,
             }
-            logger.info(f"[UBUD] Start Balance API Stream with Conf: {repr_conf(conf)}")
+            logger.info(f"[UBUD] Start Balance API Stream - {repr_conf(conf)}")
             coroutines += [stream_balance_api(**conf)]
         try:
             await asyncio.gather(*coroutines)
@@ -218,6 +220,7 @@ def start_forex_stream(interval, codes, redis_addr, redis_topic, redis_xadd_maxl
         "redis_topic": redis_topic,
         "redis_xadd_maxlen": redis_xadd_maxlen,
     }
+    logger.info(f"[UBUD] Start Forex API Stream - {repr_conf(conf)}")
 
     # START TASKS
     loop = uvloop.new_event_loop()
@@ -286,7 +289,7 @@ def start_stream(
                     "redis_xadd_maxlen": redis_xadd_maxlen,
                     "secret": secret,
                 }
-                logger.info(f"[UBUD] Start Websocket Stream with Conf: {repr_conf(conf)}")
+                logger.info(f"[UBUD] Start Websocket Stream - {repr_conf(conf)}")
                 coroutines += [stream_websocket(**conf)]
             await asyncio.gather(*coroutines)
 
@@ -310,7 +313,7 @@ def start_stream(
                     "redis_xadd_maxlen": redis_xadd_maxlen,
                     "secret": secret,
                 }
-                logger.info(f"[UBUD] Start Balance API Stream with Conf: {repr_conf(conf)}")
+                logger.info(f"[UBUD] Start Balance API Stream - {repr_conf(conf)}")
                 coroutines += [stream_balance_api(**conf)]
 
             # forex_api stream
@@ -321,6 +324,7 @@ def start_stream(
                 "redis_topic": redis_topic,
                 "redis_xadd_maxlen": redis_xadd_maxlen,
             }
+            logger.info(f"[UBUD] Start Forex API Stream - {repr_conf(conf)}")
             coroutines += [stream_forex_api(**conf)]
 
             await asyncio.gather(*coroutines)
@@ -339,3 +343,42 @@ def start_stream(
 
     # START TASKS
     ray.get([websocket_actor.run.remote(), api_actor.run.remote()])
+
+
+################################################################
+# START CONNECT INFLUXDB
+################################################################
+@ubud.command()
+@click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
+@click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
+@click.option("--secret-key", default="theone", type=str)
+@click.option("--log-level", default=logging.WARNING, type=LogLevel())
+def start_influxdb_sink(redis_addr, redis_topic, secret_key, log_level):
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    # secret
+    secret = load_secret(secret_key)
+
+    # influxdb
+    influxdb_conf = secret["influxdb"]
+
+    # TASKS #
+    conf = {
+        **influxdb_conf,
+        "redis_addr": redis_addr,
+        "redis_topic": redis_topic,
+        "redis_categories": ["quotation"],
+        "redis_xread_count": 300,
+        "redis_smember_interval": 5.0,
+    }
+    logger.info(f"[UBUD] Start Forex API Stream - {repr_conf(conf)}")
+
+    # START TASKS
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+    asyncio.run(connect_influxdb(**conf))

@@ -3,7 +3,7 @@ import logging
 
 import redis.asyncio as redis
 
-from .default import DEFAULT_SYMBOLS
+from ..utils.app import parse_redis_addr, split_delim
 from ..redis import RedisStreamHandler
 from ..websocket import BithumbWebsocket, FtxWebsocket, UpbitWebsocket
 
@@ -49,18 +49,10 @@ async def stream_websocket(
     """
 
     # correct input
-    channels = [x.strip() for x in channels.split(",")]
-    symbols = [x.strip() for x in symbols.split(",")]
-    currencies = [x.strip() for x in currencies.split(",")]
+    channels, symbols, currencies = split_delim(channels, symbols, currencies)
 
-    # redis_conf
-    redis_conf = {
-        "host": redis_addr.split(":")[0],
-        "port": redis_addr.split(":")[-1],
-        "decode_responses": True,
-    }
-
-    # clean exist keys
+    # redis_client
+    redis_conf = parse_redis_addr(redis_addr)
     redis_client = redis.Redis(**redis_conf)
 
     # set redis client
@@ -82,7 +74,6 @@ async def stream_websocket(
             "apiSecret": secret[market]["apiSecret"],
             "handler": streamer,
         }
-        logger.info(f"[STREAM] Start Websocket Stream with Conf: {conf}")
         coroutines += [WEBSOCKET[market](**conf).run()]
 
     await asyncio.gather(*coroutines)

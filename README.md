@@ -4,12 +4,15 @@
 
 ####  Update
 
+**2022.7.17   conf.yml 사용 안 함, KEY와 SECRET들만 환경변수 또는 .env로 저장**
+
+2022.7.16   리소스 이슈로 구조 수정 (CPU 사용률 절반으로 줄임)
+
 2022.7.14   conf.yml 형식 수정
 
 2022.7.14   InfluxDB Sink 작성 및 테스트
 
 2022.7.14   Orderbook 레코드에 Rank 포함 (Rank 포함 안 되어 있어서, 후순위 호가가 선순위를 계속 덮어쓰고 있었음)
-
 
 2022.7.12   서버측 문제로 API 끊어질 경우 (수 시간에 한 번씩 발생) 다시 시도하도록 BalanceUpdater 수정
 
@@ -22,8 +25,6 @@
 
 
 #### TO DO
-
-Configuration (conf.yml) 좀 더 명확하게
 
 주문 처리기 개발
 
@@ -44,8 +45,8 @@ $ cd ubud
 $ pip install -e .
 
 # 실행하기
-# (참고 1.) conf.yml이 있는 폴더에서 실행해야 함, conf.yml 안에 받아올 데이터들 정의되어 있음.
-# (참고 2.) UPBIT_API_KEY, UPBIT_API_SECRET, BITHUMB_API_*, FTX_API_*, ... 있는 .env 작성 필요.
+# 환경변수 지정 필요 (UPBIT_API_KEY, UPBIT_API_SECRET, BITHUMB_API_*, FTX_API_*)
+# 실행 위치에 .env를 두고 실행해도 됨
 $ ubud start-stream
 
 # stream 가동 후 다른 터미널에서 필요한 작업 수행
@@ -55,3 +56,42 @@ $ ubud start-stream --log-level INFO
 # (참고) Background에서 가동하고 싶으면
 $ nohup ubud start-stream &> ubud.log &
 ```
+
+
+
+#### Database 사용 방법
+
+```python
+import redis.asyncio as redis
+from ubud.redis.db import Database
+
+# 스트림은 별도 프로세스로 가동 중이어야 함
+# (참고) 터미널에서 "ubud start-stream" 실행한 상태
+
+redis_client = redis.Redis(decode_responses=True)
+db = Database(redis_client=redis_client)
+
+# 모든 스트림 조회하기
+await db.streams()
+
+# 모든 Balance 조회하기
+await db.balances()
+
+# 모든 Orderbook 조회하기
+await db.orderbooks()
+
+# 모든 Trade 조회하기
+await db.trades()
+
+# 환율 조회하기
+await db.forex()
+
+# 필터 활용 - balances, orderbooks, trades 모두 필터 지원
+# 업비트와 FTX의 BTC에 대한 최신 Trade 조회하기
+await db.trades(market="upbit,ftx", symbol="BTC")
+
+# 업비트와 빗썸의 WAVES에 대한 최신 Orderbook을 3순위까지 조회하기
+await db.orderbooks(market="upbit,bithumb", symbol="WAVES", max_rank=3)
+
+```
+

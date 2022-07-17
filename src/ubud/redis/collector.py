@@ -16,7 +16,6 @@ class Collector:
         redis_client: redis.Redis,
         redis_topic: str = "ubud",
         redis_categories: list = ["exchange", "forex", "quotation"],
-        redis_expire_sec: int = 600,
         redis_xread_count: int = 300,
         redis_smember_interval: float = 5.0,
         handler: Callable = None,
@@ -25,7 +24,6 @@ class Collector:
         self.redis_client = redis_client
         self.redis_topic = redis_topic
         self.redis_categories = [f"{self.redis_topic}-stream/{cat}" for cat in redis_categories]
-        self.redis_expire_sec = redis_expire_sec
         self.redis_xread_count = redis_xread_count
         self.redis_smember_interval = redis_smember_interval
 
@@ -64,7 +62,7 @@ class Collector:
                     messages += [msg]
             if self.handler is not None:
                 try:
-                    self.handler(messages)
+                    await self.handler(messages)
                 except Exception as ex:
                     logger.warning(f"[COLLECTOR] Handler Failed - {ex}")
         else:
