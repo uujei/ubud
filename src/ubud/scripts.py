@@ -352,9 +352,10 @@ def start_stream(
 @ubud.command()
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
+@click.option("--influxdb-url", default=None, type=str)
 @click.option("--secret-key", default="theone", type=str)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
-def start_influxdb_sink(redis_addr, redis_topic, secret_key, log_level):
+def start_influxdb_sink(redis_addr, redis_topic, influxdb_url, secret_key, log_level):
 
     # set log level
     logging.basicConfig(
@@ -367,6 +368,8 @@ def start_influxdb_sink(redis_addr, redis_topic, secret_key, log_level):
 
     # influxdb
     influxdb_conf = secret["influxdb"]
+    if influxdb_url is not None:
+        influxdb_conf["influxdb_url"] = influxdb_url
 
     # TASKS #
     conf = {
