@@ -194,14 +194,17 @@ class InfluxdDBConnector:
 # InfluxDB Connector
 ################################################################
 async def connect_influxdb(
-    influxdb_url: str,
-    influxdb_org: str,
-    influxdb_token: str,
     redis_addr: str = "localhost:6379",
     redis_topic: str = "ubud",
     redis_categories: list = ["quotation"],
-    redis_xread_count: int = 300,
+    redis_xread_block: int = 100,
     redis_smember_interval: float = 5.0,
+    influxdb_url: str = "http://myinfluxdb",
+    influxdb_org: str = "myorg",
+    influxdb_token: str = "mytoken",
+    influxdb_interval: float = 1,
+    influxdb_flush_sec: float = 1,
+    influxdb_flush_size: float = 100,
 ):
 
     # redis_client
@@ -212,11 +215,14 @@ async def connect_influxdb(
         redis_client=redis_client,
         redis_topic=redis_topic,
         redis_categories=redis_categories,
-        redis_xread_count=redis_xread_count,
+        redis_xread_block=redis_xread_block,
         redis_smember_interval=redis_smember_interval,
         influxdb_url=influxdb_url,
         influxdb_org=influxdb_org,
         influxdb_token=influxdb_token,
+        influxdb_interval=influxdb_interval,
+        influxdb_flush_sec=influxdb_flush_sec,
+        influxdb_flush_size=influxdb_flush_size,
     )
 
     await connector.run()

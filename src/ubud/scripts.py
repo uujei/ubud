@@ -352,10 +352,24 @@ def start_stream(
 @ubud.command()
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
+@click.option("--redis-categories", default="quotation", type=str)
 @click.option("--influxdb-url", default=None, type=str)
+@click.option("--influxdb-interval", default=0.01, type=float)
+@click.option("--influxdb-flush-sec", default=0.1, type=float)
+@click.option("--influxdb-flush-size", default=100, type=float)
 @click.option("--secret-key", default="theone", type=str)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
-def start_influxdb_sink(redis_addr, redis_topic, influxdb_url, secret_key, log_level):
+def start_influxdb_sink(
+    redis_addr,
+    redis_topic,
+    redis_categories,
+    influxdb_url,
+    influxdb_interval,
+    influxdb_flush_sec,
+    influxdb_flush_size,
+    secret_key,
+    log_level,
+):
 
     # set log level
     logging.basicConfig(
@@ -373,12 +387,15 @@ def start_influxdb_sink(redis_addr, redis_topic, influxdb_url, secret_key, log_l
 
     # TASKS #
     conf = {
-        **influxdb_conf,
         "redis_addr": redis_addr,
         "redis_topic": redis_topic,
-        "redis_categories": ["quotation"],
-        "redis_xread_count": 300,
-        "redis_smember_interval": 5.0,
+        "redis_categories": redis_categories,
+        "redis_xread_block": 300,
+        "redis_smember_interval": 1.0,
+        **influxdb_conf,
+        "influxdb_interval": influxdb_interval,
+        "influxdb_flush_sec": influxdb_flush_sec,
+        "influxdb_flush_size": influxdb_flush_size,
     }
     logger.info(f"[UBUD] Start InfluxDB Sink Stream - {repr_conf(conf)}")
 
