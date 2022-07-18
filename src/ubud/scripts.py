@@ -380,7 +380,7 @@ def start_influxdb_sink(redis_addr, redis_topic, influxdb_url, secret_key, log_l
         "redis_xread_count": 300,
         "redis_smember_interval": 5.0,
     }
-    logger.info(f"[UBUD] Start Forex API Stream - {repr_conf(conf)}")
+    logger.info(f"[UBUD] Start InfluxDB Sink Stream - {repr_conf(conf)}")
 
     # START TASKS
     loop = uvloop.new_event_loop()

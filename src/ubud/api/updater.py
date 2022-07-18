@@ -120,10 +120,10 @@ class ForexUpdater(Updater, ForexApi):
 
 
 ################################################################
-# Forex Updater
+# Exchange Updater
 ################################################################
 # Abstract BalanceUpdater
-class BalanceUpdater(Updater):
+class ExchangeUpdater(Updater):
     def __init__(
         self,
         apiKey: str,
@@ -143,7 +143,7 @@ class BalanceUpdater(Updater):
 
 
 # Upbit
-class UpbitBalanceUpdater(BalanceUpdater, UpbitApi):
+class UpbitBalanceUpdater(ExchangeUpdater, UpbitApi):
     MARKET = "upbit"
     REQUEST_ARGS = {
         "path": "/accounts",
@@ -174,7 +174,7 @@ class UpbitBalanceUpdater(BalanceUpdater, UpbitApi):
 
 
 # Bithumb
-class BithumbBalanceUpdater(BalanceUpdater, BithumbApi):
+class BithumbBalanceUpdater(ExchangeUpdater, BithumbApi):
     MARKET = "bithumb"
     REQUEST_ARGS = {
         "path": "/info/balance",
@@ -210,8 +210,34 @@ class BithumbBalanceUpdater(BalanceUpdater, BithumbApi):
         return messages
 
 
-# FTX
-class FtxBalanceUpdater(BalanceUpdater, FtxApi):
+# FTX Balance
+class FtxBalanceUpdater(ExchangeUpdater, FtxApi):
+    MARKET = "ftx"
+    REQUEST_ARGS = {
+        "path": "/wallet/balances",
+    }
+
+    async def parser(self, records):
+        messages = []
+        for r in records:
+            msg = {
+                "name": f"exchange/balance/{self.MARKET}/{r['coin']}",
+                "value": {
+                    DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds")),
+                    "total": float(r["total"]),
+                    "locked": float(r["total"]) - float(r["free"]),
+                    "free": float(r["free"]),
+                },
+            }
+
+            logger.debug(f"[UPDATER] FTX Balance Message Parsed: {msg}")
+            messages += [msg]
+
+        return messages
+
+
+# FTX Position
+class FtxPositionUpdater(ExchangeUpdater, FtxApi):
     MARKET = "ftx"
     REQUEST_ARGS = {
         "path": "/wallet/balances",

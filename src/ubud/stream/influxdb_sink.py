@@ -60,18 +60,24 @@ class InfluxdDBConnector:
         redis_client: redis.Redis,
         redis_topic: str = "ubud",
         redis_categories: list = ["quotation"],
-        redis_xread_count: int = 300,
+        redis_xread_block: int = 100,
         redis_smember_interval: float = 5.0,
         influxdb_url: str = "http://localhost:8086",
         influxdb_org: str = "myorgt",
         influxdb_token: str = "mytoken",
+        influxdb_interval: float = 0.1,
+        influxdb_flush_sec: float = 1,
+        influxdb_flush_size: float = 5000,
     ):
         # properties
         self.redis_client = redis_client
         self.redis_topic = redis_topic
         self.redis_categories = [f"{self.redis_topic}-stream/{cat}" for cat in redis_categories]
-        self.redis_xread_count = redis_xread_count
+        self.redis_xread_block = redis_xread_block
         self.redis_smember_interval = redis_smember_interval
+        self.influxdb_interval = influxdb_interval
+        self.influxdb_flush_sec = influxdb_flush_sec
+        self.influxdb_flush_size = influxdb_flush_size
 
         # influxdb (sink)
         self.influxdb_conf = {
@@ -88,64 +94,46 @@ class InfluxdDBConnector:
 
         # stream management
         self._redis_stream_names_key = f"{self.redis_topic}-stream/keys"
-        self._redis_stream_offset = dict()
+        self._redis_streams = dict()
 
         # [NOTE] refresh
         # stream list update가 리소스에 부담되어 주기 설정, 매번 update할 때보다 CPU 사용률 20~30% 가량 감소
-        self._last_refresh = time.time() - redis_smember_interval
+        self._last_smemeber = time.time() - self.redis_smember_interval
+
+        # InfluxDB Queue
+        self._last_write = time.time()
+        self._queue = list()
 
     async def run(self):
-        # collect
-        try:
-            while True:
-                records = []
-                try:
-                    await self.update_streams()
-                    Points = await asyncio.gather(
-                        *[self.connect(name, offset) for name, offset in self._redis_stream_offset.items()]
-                    )
-                    Points = filter(lambda x: x is not None, Points)
-                    records += [p for points in Points for p in points]
-                    await asyncio.sleep(0.01)
-                except Exception as ex:
-                    logger.warning(f"[INFLUXDB] Gather Points FAILED - {ex}")
+        await asyncio.gather(self.updater(), self.collector(), self.writer())
 
-                if len(records) > 0:
-                    try:
-                        async with InfluxDBClientAsync(**self.influxdb_conf) as client:
-                            write_api = client.write_api()
-                            ack = await write_api.write(self.redis_topic, self.influxdb_org, records)
-                            if not ack:
-                                raise
-                            _sample = records[0] if len(records) > 0 else "-"
-                            logger.info(
-                                f"[INFLUXDB] Write {len(records):4d} Points into Bucket {self.redis_topic}, Sample {_sample}"
-                            )
-                    except Exception as ex:
-                        logger.warning(f"[INFLUXDB] Write InfluxDB FAILED - {ex}")
-                        traceback.print_exc()
+    async def updater(self):
+        while True:
+            try:
+                _last_smember = time.time()
+                if _last_smember - self._last_smemeber < self.redis_smember_interval:
+                    return
+                # 지정한 category에 속하는 stream만 구독
+                _streams = await self.redis_client.smembers(self._redis_stream_names_key)
+                self._redis_streams = [s for s in _streams if any([s.startswith(c) for c in self.redis_categories])]
+                # reset
+                self._last_smemeber = _last_smember
+            except Exception as ex:
+                logger.warning("[INFLUXDB] Updater Failed - {0}".format(ex))
 
-                await asyncio.sleep(0.001)
-        except Exception as ex:
-            logger.error(f"[INFLUXDB] Stopped! - {ex}")
-
-        finally:
-            await asyncio.sleep(1)
-
-    async def connect(self, name, offset):
-        # get streams
-        streams = await self.redis_client.xread({name: offset}, count=self.redis_xread_count)
-
-        # job
-        if len(streams) > 0:
-            points = []
-            for _, stream in streams:
-                for _offset, data in stream:
-                    try:
-                        # set data
-                        logger.debug(f"[INFLUXDB] Prepare Writing {data['name']}, {data['value']} into InfluxDB")
-                        # parse
+    async def collector(self):
+        while True:
+            try:
+                if len(self._redis_streams) == 0:
+                    await asyncio.sleep(0.1)
+                streams = await self.redis_client.xread(
+                    {k: "$" for k in self._redis_streams}, block=self.redis_xread_block
+                )
+                for _, stream in streams:
+                    for _, data in stream:
                         try:
+                            # set data
+                            logger.debug(f"[INFLUXDB] Prepare Writing {data['name']}, {data['value']} into InfluxDB")
                             key, value = data["name"], data["value"]
                             measurement, ch = key.split("/", 3)[1:3]
                             if measurement == "exchange":
@@ -153,34 +141,36 @@ class InfluxdDBConnector:
                             parser = self.parser.get(measurement)
                             if parser is not None:
                                 p = await self.parse_quotation(measurement, key, value)
-                                points += [p]
+                                self._queue += [p]
                         except Exception as ex:
-                            logger.warning(f"[INFLUXDB] Parse Error - {ex}")
+                            logger.warning("[INFLUXDB] Parse Error {0}".format(ex))
                             traceback.print_exc()
+            except Exception as ex:
+                logger.warning("[INFLUXDB] Collector Failed - {0}".format(ex))
 
-                    except Exception as ex:
-                        logger.warning(ex)
-
-                # update stream offset (only for last _offset)
-                logger.debug(f"[INFLUXDB] Update Stream Offset {name}, {_offset}")
-                self._redis_stream_offset.update({name: _offset})
-
-                return points
-
-    async def update_streams(self):
-        last_refresh = time.time()
-        if last_refresh - self._last_refresh < self.redis_smember_interval:
-            return
-        self._last_refresh = last_refresh
-        stream_names = await self.redis_client.smembers(self._redis_stream_names_key)
-
-        # 지정한 category에 속하는 stream만 구독
-        stream_names = [s for s in stream_names if any([s.startswith(c) for c in self.redis_categories])]
-        for stream_name in stream_names:
-            if stream_name not in self._redis_stream_offset.keys():
-                offset = self._get_offset()
-                logger.debug(f"[INFLUXDB] Register New Stream {stream_name} with Offset {offset}")
-                self._redis_stream_offset.update({stream_name: offset})
+    async def writer(self):
+        while True:
+            _n = len(self._queue)
+            _now = time.time()
+            if _n > self.influxdb_flush_size or (_now - self._last_write) > self.influxdb_flush_sec:
+                if _n == 0:
+                    continue
+                try:
+                    async with InfluxDBClientAsync(**self.influxdb_conf) as client:
+                        write_api = client.write_api()
+                        ack = await write_api.write(self.redis_topic, self.influxdb_org, self._queue[:_n])
+                        if not ack:
+                            raise
+                        logger.info(
+                            "[INFLUXDB] Write {0:4d} Points into Bucket {1}, Sample {2}".format(
+                                len(self._queue), self.redis_topic, self._queue[-1]
+                            )
+                        )
+                    self._queue = self._queue[_n:]
+                except Exception as ex:
+                    logger.warning(f"[INFLUXDB] Write Failed - {ex}")
+            # wait
+            await asyncio.sleep(self.influxdb_interval)
 
     @staticmethod
     async def parse_quotation(measurement, key, value):
@@ -192,7 +182,7 @@ class InfluxdDBConnector:
             "fields": {k: float(v) for k, v in value.items() if k in QUOTATION_FIELDS},
             "time": value[DATETIME],
         }
-        logger.debug(f"[INFLUXDB] Quotation Record Parsed: {p}")
+        logger.debug("[INFLUXDB] Quotation Record Parsed: {0}".format(p))
         return p
 
     @staticmethod
