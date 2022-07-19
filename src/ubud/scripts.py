@@ -150,7 +150,7 @@ def start_websocket_stream(
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
 @click.option("--redis-xadd-maxlen", default=100, type=int)
-@click.option("--secret_key", default=None, type=str)
+@click.option("--secret-key", default=None, type=str)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
 def start_balance_stream(market, symbols, interval, redis_topic, redis_addr, redis_xadd_maxlen, secret_key, log_level):
 
@@ -354,7 +354,7 @@ def start_stream(
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
 @click.option("--redis-categories", default="quotation", type=str)
 @click.option("--influxdb-url", default=None, type=str)
-@click.option("--influxdb-interval", default=0.01, type=float)
+@click.option("--influxdb-write-interval", default=0.1, type=float)
 @click.option("--influxdb-flush-sec", default=0.1, type=float)
 @click.option("--influxdb-flush-size", default=100, type=float)
 @click.option("--secret-key", default="theone", type=str)
@@ -364,7 +364,7 @@ def start_influxdb_sink(
     redis_topic,
     redis_categories,
     influxdb_url,
-    influxdb_interval,
+    influxdb_write_interval,
     influxdb_flush_sec,
     influxdb_flush_size,
     secret_key,
@@ -390,14 +390,15 @@ def start_influxdb_sink(
         "redis_addr": redis_addr,
         "redis_topic": redis_topic,
         "redis_categories": redis_categories,
-        "redis_xread_block": 300,
+        "redis_xread_count": None,
         "redis_smember_interval": 1.0,
         **influxdb_conf,
-        "influxdb_interval": influxdb_interval,
+        "influxdb_write_interval": influxdb_write_interval,
         "influxdb_flush_sec": influxdb_flush_sec,
         "influxdb_flush_size": influxdb_flush_size,
     }
     logger.info(f"[UBUD] Start InfluxDB Sink Stream - {repr_conf(conf)}")
+    
 
     # START TASKS
     loop = uvloop.new_event_loop()
