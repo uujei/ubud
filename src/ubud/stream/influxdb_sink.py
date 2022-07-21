@@ -49,6 +49,8 @@ EXCHANGE_FIELDS = ["total", "locked", "free"]
 
 _forex_subtopics = "/".join([f"{{{t}}}" for t in FOREX_KEY_RULE])
 FOREX_KEY_PARSER = parse.compile("/".join(["{topic}", _forex_subtopics]))
+FOREX_TAGS = ["channel", "codes"]
+FOREX_FIELDS = ["basePrice", "highPrice", "lowPrice", "cashBuyingPrice", "cashSellingPrice"]
 
 
 ################################################################
@@ -59,7 +61,7 @@ class InfluxdDBConnector:
         self,
         redis_client: redis.Redis,
         redis_topic: str = "ubud",
-        redis_categories: list = ["quotation"],
+        redis_categories: list = ["quotation", "forex"],
         redis_xread_interval: float = 0.1,
         redis_xread_count: int = None,
         redis_smember_interval: float = 5.0,
@@ -96,6 +98,7 @@ class InfluxdDBConnector:
         # parser
         self.PARSER = {
             "quotation": self.parse_quotation,
+            "forex": self.parse_forex,
         }
 
         # stream management
@@ -198,6 +201,19 @@ class InfluxdDBConnector:
         return p
 
     @staticmethod
+    def parse_forex(source, key, value):
+        key = FOREX_KEY_PARSER.parse(key).named
+        value = json.loads(value)
+        p = {
+            "measurement": source,
+            "tags": {k: v for k, v in key.items() if k in FOREX_TAGS},
+            "fields": {k: float(v) for k, v in value.items() if k in FOREX_FIELDS},
+            "time": value[DATETIME],
+        }
+        logger.debug("[INFLUXDB] Quotation Record Parsed: {0}".format(p))
+        return p
+
+    @staticmethod
     def _get_offset():
         return str(int(time.time() * 1e3)) + "-0"
 
@@ -208,7 +224,7 @@ class InfluxdDBConnector:
 async def connect_influxdb(
     redis_addr: str = "localhost:6379",
     redis_topic: str = "ubud",
-    redis_categories: list = ["quotation"],
+    redis_categories: list = ["quotation", "forex"],
     redis_xread_interval: float = 0.1,
     redis_xread_count: int = None,
     redis_smember_interval: float = 5.0,

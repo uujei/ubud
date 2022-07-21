@@ -71,6 +71,12 @@ class Database:
                     value = {k: v for k, v in value.items() if not k.startswith("_")}
                 return {"name": name, "value": value}
 
+    async def _xrange(self, key, offset):
+        rets = await self.redis_client.xread({key: offset})
+        if len(rets) > 0:
+            for idx, data in rets:
+                name = data["name"]
+
     # [BALANCE]
     async def balance(self, market, symbol):
         _path = "exchange/balance"

@@ -21,12 +21,14 @@ class BaseApp:
         redis_topic: str = "ubud",
         redis_streams: Union[str, list] = "*",
         redis_xread_block: int = 100,
+        redis_stream_update_interval: int = 5,
     ):
         # properties
         self.redis_client = redis_client
         self.redis_topic = redis_topic
         self.redis_streams = self._ensure_list(redis_streams)
         self.redis_xread_block = redis_xread_block
+        self.redis_stream_update_interval = redis_stream_update_interval
 
         # settings
         self.db = Database(redis_client=self.redis_client, redis_topic=self.redis_topic)
@@ -38,21 +40,11 @@ class BaseApp:
         # whoami
         self.me = self.__class__.__name__
 
-    async def check(self):
-        streams = await asyncio.gather(*[self.db.streams(s) for s in self.redis_streams])
-        _pad = max([len(s) for s in self.redis_streams])
-        logger.info("[APP {app}] Check Your Streams. It's Important!".format(app=self.me))
-        for s, _s in zip(self.redis_streams, streams):
-            logger.info(
-                "[APP {app}] {pattern:>{pad}}: {results}".format(
-                    app=self.me, pattern=s, pad=_pad, results=", ".join(_s)
-                )
-            )
-        self._redis_streams = [_s for s in streams for _s in s]
-
-        return self._redis_streams
-
     async def run(self, debug=False, repeat=10):
+
+        # update streams first
+        await self._update_streams()
+
         try:
             while True:
                 # catch streams
@@ -80,16 +72,38 @@ class BaseApp:
         except Exception as ex:
             logger.warning("[APP {0}] STOP - {1}".format(self.me, ex))
 
-    @staticmethod
-    async def on_stream(db=None, offset=None):
+    async def emitter(self, stream):
+        while True:
+            try:
+                data = await self.redis_client.xread({stream: "$"}, block=self.redis_xread_block)
+                if len(data) > 0:
+                    await self.on_stream()
+            except Exception as ex:
+                logger.warning("[APP {0}] Fail XREAD - {1}".format(self.me, ex))
+                continue
+
+    async def sync_streams(self):
+        while True:
+            self._update_stream()
+            await asyncio.sleep(self.stream_update_interval)
+
+    async def _update_stream(self):
+        # get streams
+        streams = await asyncio.gather(*[self.db.streams(s) for s in self.redis_streams])
+        # update
+        self._redis_streams = [_s for s in streams for _s in s]
+        # logging
+        logger.info("[APP {app}] Check Streams! {streams} Important!".format(app=self.me, streams=self._redis_streams))
+
+    async def on_stream(self):
         """
         Arguments
         ---------
         db: ubud.redis.Database
             ubud object for redis db
         """
-        results = await db.balances()
-        logger.info("[ON_STREAM] offset {0}, data {1}".format(offset, results))
+        results = await self.db.balances()
+        logger.info("[ON_STREAM] offset {0}, data {1}".format(self._offset, results))
         return
 
     @staticmethod

@@ -197,8 +197,9 @@ class BithumbBalanceUpdater(ExchangeUpdater, BithumbApi):
             holder[symbol].update({self.MAP[cat]: float(v)})
 
         messages = []
-        for symbol, value in holder.items():
-            value.update({DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds"))})
+        for symbol, _value in holder.items():
+            value = {DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds"))}
+            value.update(_value)
             msg = {
                 "name": f"exchange/balance/{self.MARKET}/{symbol.upper()}",
                 "value": value,

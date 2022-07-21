@@ -352,7 +352,6 @@ def start_stream(
 @ubud.command()
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
-@click.option("--redis-categories", default="quotation", type=str)
 @click.option("--influxdb-url", default=None, type=str)
 @click.option("--influxdb-write-interval", default=0.1, type=float)
 @click.option("--influxdb-flush-sec", default=0.1, type=float)
@@ -362,7 +361,6 @@ def start_stream(
 def start_influxdb_sink(
     redis_addr,
     redis_topic,
-    redis_categories,
     influxdb_url,
     influxdb_write_interval,
     influxdb_flush_sec,
@@ -389,7 +387,6 @@ def start_influxdb_sink(
     conf = {
         "redis_addr": redis_addr,
         "redis_topic": redis_topic,
-        "redis_categories": redis_categories,
         "redis_xread_count": None,
         "redis_smember_interval": 1.0,
         **influxdb_conf,
