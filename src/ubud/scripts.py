@@ -398,7 +398,6 @@ def start_influxdb_sink(
         "influxdb_flush_size": influxdb_flush_size,
     }
     logger.info(f"[UBUD] Start InfluxDB Sink Stream - {repr_conf(conf)}")
-    
 
     # START TASKS
     loop = uvloop.new_event_loop()

@@ -11,6 +11,12 @@ def parse_redis_addr(redis_addr, decode_responses=True):
     """
     DEFAULT_PORT = 6379
 
+    if redis_addr.endswith(".sock"):
+        return {
+            "unix_socket_path": redis_addr,
+            "decode_responses": True,
+        }
+
     x = redis_addr.split(":")
     host = x[0]
     port = x[1] if len(x) > 1 else DEFAULT_PORT

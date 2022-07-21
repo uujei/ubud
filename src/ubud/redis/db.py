@@ -16,6 +16,7 @@ class Database:
         self,
         redis_client: redis.Redis,
         redis_topic: str = "ubud",
+        strip_prefix: bool = False,
         hide_metric: bool = True,
     ):
         # props
@@ -24,6 +25,7 @@ class Database:
         self.redis_stream_prefix = f"{redis_topic}-stream"
 
         # hide _*
+        self.strip_prefix = strip_prefix
         self.hide_metric = hide_metric
 
         # client and keys
@@ -79,6 +81,8 @@ class Database:
         _path = "exchange/balance"
         market, symbol = self._split(market, symbol)
         values = await self.mxget(["/".join([self.redis_stream_prefix, _path, m, s]) for m in market for s in symbol])
+        if not self.strip_prefix:
+            return values
         return {self._strip_prefix(k, _path): v for k, v in values.items()}
 
     # [TRADE]
@@ -90,7 +94,6 @@ class Database:
     async def trades(self, market="*", symbol="*", currency="*", orderType="*"):
         _path = "quotation/trade"
         market, symbol, currency, orderType = self._split(market, symbol, currency, orderType)
-
         values = await self.mxget(
             [
                 "/".join([self.redis_stream_prefix, _path, m, s, c, o, "0"])
@@ -100,6 +103,8 @@ class Database:
                 for o in orderType
             ]
         )
+        if not self.strip_prefix:
+            return values
         return {self._strip_prefix(k, _path).replace("/0", ""): v for k, v in values.items()}
 
     # [ORDERBOOK]
@@ -123,6 +128,8 @@ class Database:
                 for r in rank
             ]
         )
+        if not self.strip_prefix:
+            return values
         return {self._strip_prefix(k, _path): v for k, v in values.items()}
 
     async def forex(self, codes="FRX.KRWUSD"):
