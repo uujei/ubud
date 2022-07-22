@@ -3,6 +3,7 @@ from ..redis.db import Database
 import asyncio
 import time
 import logging
+from fnmatch import fnmatch
 from typing import Union, List
 
 logger = logging.getLogger(__name__)
@@ -34,66 +35,11 @@ class BaseApp:
         self.db = Database(redis_client=self.redis_client, redis_topic=self.redis_topic)
 
         # offset management
-        self._redis_streams = None
-        self._offset = str(int(time.time() * 1e3))
+        self._redis_streams_set = f"{self.reids_topic}-stream/keys"
+        self._offsets = dict()
 
         # whoami
-        self.me = self.__class__.__name__
-
-    async def run(self, debug=False, repeat=10):
-
-        # update streams first
-        await self._update_streams()
-
-        try:
-            while True:
-                # catch streams
-                try:
-                    streams = await self.redis_client.xread(
-                        {s: "$" for s in self.redis_streams}, block=self.redis_xread_block
-                    )
-                except Exception as ex:
-                    logger.warning("[APP {0}] Fail XREAD - {1}".format(self.me, ex))
-                    continue
-
-                # continue if no streams
-                if len(streams) == 0:
-                    continue
-
-                # trigger on_stream
-                try:
-                    await self.on_stream(db=self.db, offset=self._offset)
-                except Exception as ex:
-                    logger.warning("[APP {0}] Fail Execute Task - {1}".format(self.me, ex))
-
-                # update offset "after" on_stream
-                self._offset = streams[-1][1][-1][0]
-
-        except Exception as ex:
-            logger.warning("[APP {0}] STOP - {1}".format(self.me, ex))
-
-    async def emitter(self, stream):
-        while True:
-            try:
-                data = await self.redis_client.xread({stream: "$"}, block=self.redis_xread_block)
-                if len(data) > 0:
-                    await self.on_stream()
-            except Exception as ex:
-                logger.warning("[APP {0}] Fail XREAD - {1}".format(self.me, ex))
-                continue
-
-    async def sync_streams(self):
-        while True:
-            self._update_stream()
-            await asyncio.sleep(self.stream_update_interval)
-
-    async def _update_stream(self):
-        # get streams
-        streams = await asyncio.gather(*[self.db.streams(s) for s in self.redis_streams])
-        # update
-        self._redis_streams = [_s for s in streams for _s in s]
-        # logging
-        logger.info("[APP {app}] Check Streams! {streams} Important!".format(app=self.me, streams=self._redis_streams))
+        self._me = self.__class__.__name__
 
     async def on_stream(self):
         """
@@ -103,8 +49,49 @@ class BaseApp:
             ubud object for redis db
         """
         results = await self.db.balances()
-        logger.info("[ON_STREAM] offset {0}, data {1}".format(self._offset, results))
+        logger.info("[ON_STREAM] offset {0}, data {1}".format(self._offsets, results))
         return
+
+    async def run(self):
+        try:
+            while True:
+                # catch streams
+                try:
+                    new_streams = self.update_stream()
+                    if new_streams:
+                        for s, _ in new_streams.items():
+                            asyncio.create_task(self.consumer(s))
+                except Exception as ex:
+                    logger.warning("[APP {0}] Fail Update Stream - {1}".format(self._me, ex))
+                    continue
+                finally:
+                    await asyncio.sleep(self.stream_update_interval)
+        except Exception as ex:
+            logger.warning("[APP {0}] STOP - {1}".format(self._me, ex))
+
+    async def consumer(self, stream):
+        while True:
+            try:
+                data = await self.redis_client.xread({stream: self._offsets[stream]}, block=self.redis_xread_block)
+                if len(data) > 0:
+                    await self.on_stream()
+            except Exception as ex:
+                logger.warning("[APP {0}] Fail XREAD - {1}".format(self._me, ex))
+                continue
+
+    async def update_stream(self):
+        # get new streams
+        streams = await self.redis_client.smembers(self._redis_streams_set)
+        offsets = {
+            s: "$"
+            for s in streams
+            if any([fnmatch(s, p) for p in self.redis_streams]) and s not in self._offsets.keys()
+        }
+
+        # register new streams
+        self._offsets.update(offsets)
+
+        return offsets
 
     @staticmethod
     def _ensure_list(x):

@@ -116,3 +116,57 @@ class RedisStreamHandler:
         except Exception as ex:
             logger.warning(f"[STREAMER] XADD Failed - {ex}, msg: {msg}")
             traceback.print_exc()
+
+
+################################################################
+# RedisStreamHandler2
+################################################################
+class RedisStreamHandler2:
+    """
+    messages = [{"name": <name: str>, "value": <value: dict>}, ...]
+    """
+
+    def __init__(
+        self,
+        redis_client: redis.Redis,
+        redis_topic: str = "ubud",
+        redis_xadd_maxlen: int = 10,
+        redis_xadd_approximate: bool = False,
+    ):
+        # properties
+        self.redis_client = redis_client
+        self.redis_topic = redis_topic
+        self.redis_xadd_maxlen = redis_xadd_maxlen
+        self.redis_xadd_approximate = redis_xadd_approximate
+
+        # store
+        self._redis_stream_set_key = f"{self.redis_topic}/keys"
+        self._redis_stream_set = set()
+
+    async def __call__(self, messages):
+        try:
+            await asyncio.gather(*[self.xadd(msg) for msg in messages])
+        except Exception as ex:
+            logger.warn(f"[STREAMER] {ex}")
+            traceback.print_exc()
+
+    async def xadd(self, msg):
+        try:
+            name = "/".join([self.redis_topic, msg["name"]])
+
+            logger.info(f"[STREAMER] XADD {name} {msg} MAXLEN {self.redis_xadd_maxlen}")
+            await self.redis_client.xadd(
+                name=name,
+                fields=msg["value"],
+                maxlen=self.redis_xadd_maxlen,
+                approximate=self.redis_xadd_approximate,
+            )
+
+            # register stream key
+            if name not in self._redis_stream_set:
+                await self.redis_client.sadd(self._redis_stream_set_key, name)
+                self._redis_stream_set = await self.redis_client.smembers(self._redis_stream_set_key)
+
+        except Exception as ex:
+            logger.warning(f"[STREAMER] XADD Failed - {ex}, msg: {msg}")
+            traceback.print_exc()
