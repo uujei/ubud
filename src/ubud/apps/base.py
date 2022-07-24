@@ -26,22 +26,22 @@ class OnStream:
 
 class App:
     """
-    [NOTE] 가장 기본적인 Application
-    주어진 redis_streams에 새로운 event가 들어올 때마다 on_stream 함수를 실행
-    적절한 redis_streams이 주어지지 않는다면 작업이 늦게 수행되던지 너무 많은 리소스를 소모
-
-    Example
-    -------
-    >>> # on_stream 정의
-    >>> def on_stream(stream, offset, record):
-    >>>     logger.info("stream: {}".format(stream))
-    >>>     logger.info("offset: {}".format(offset))
-    >>>     logger.info("record: {}".format(record))
-    >>> # app 생성 및 on_stream override
-    >>> app = App(redis_client=redis_client)
-    >>> app.on_stream = on_stream
-    >>> # 실행 (debug=True 적용하면 3초만 실행 후 종료)
-    >>> asyncio.run(app.run(debug=True))
+    Init. Properties
+    ----------------
+    redis_client: redis.Reids
+        required.
+    redis_topic: str
+        default 'ubud'.
+    redis_streams: list
+        default '*'.
+    redis_xread_block:
+        default 100.
+    redis_stream_handler: ubud.redis.RedisStreamHandler
+        default None.
+    redis_stream_update_interval: int
+        default 5.
+    debug_sec: int
+        default 1.
     """
 
     def __init__(
