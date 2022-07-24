@@ -123,6 +123,30 @@ class Database:
             return values
         return {self._strip_prefix(k, _path): v for k, v in values.items()}
 
+    # [PREMIUM]
+    async def premium(self, market, symbol, currency, orderType, rank="1-1"):
+        _path = "premium/orderbook"
+        key = "/".join([self.redis_topic, _path, market, symbol, currency, orderType, str(rank)])
+        return await self.xget(key)
+
+    async def premiums(self, market="*", symbol="*", currency="*", orderType="*", rank="*"):
+        _path = "premium/orderbook"
+        market, symbol, currency, orderType, rank = self._split(market, symbol, currency, orderType, str(rank))
+        values = await self.mxget(
+            [
+                "/".join([self.redis_topic, _path, m, s, c, o, r])
+                for m in market
+                for s in symbol
+                for c in currency
+                for o in orderType
+                for r in rank
+            ]
+        )
+        if not self.strip_prefix:
+            return values
+        return {self._strip_prefix(k, _path): v for k, v in values.items()}
+
+    # [FOREX]
     async def forex(self, codes="FRX.KRWUSD"):
         _path = f"forex/recent/{codes}"
         key = "/".join([self.redis_topic, _path])

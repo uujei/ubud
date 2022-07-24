@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 ################################################################
 class Usd2KrwApp(App):
     # settings
-    FOREX_PRICE = "cashBuyingPrice"
+    FOREX_PRICE = ["basePrice", "cashBuyingPrice", "cashSellingPrice"]
 
     # forex store
     forex = dict()
@@ -25,29 +25,37 @@ class Usd2KrwApp(App):
         if "FRX.KRWUSD" in stream:
             self.forex.update(record)
             return
-        if krw_per_usd := self.forex.get(self.FOREX_PRICE):
-            try:
-                usd = float(record["price"])
-                krw = get_order_unit(usd * float(krw_per_usd))
-                _stream = stream.split("/", 1)[-1].replace("/USD/", "/KRW.usd/")
-                msg = Message(key=_stream, value={DATETIME: record[DATETIME], "price": krw})
 
-                # logging
-                logger.debug(
-                    "[APP {app}] From {src_stream}, {price}, {usd} -> To {dst_stream}, {price}, {krw}".format(
-                        app=self._me, src_stream=stream, dst_stream=_stream, price="price", usd=usd, krw=krw
+        usd = float(record["price"])
+        for forex_price in self.FOREX_PRICE:
+            if krw_per_usd := self.forex.get(forex_price):
+                try:
+                    krw = get_order_unit(usd * float(krw_per_usd))
+                    _stream = stream.split("/", 1)[-1].replace("/USD/", f"/KRW.usd.{forex_price}/")
+                    msg = Message(
+                        key=_stream,
+                        value={
+                            DATETIME: record[DATETIME],
+                            "price": krw,
+                        },
                     )
-                )
-            except Exception as ex:
-                logger.warning("[APP {app}] Transform Failed {ex}".format(app=self._me, ex=ex))
 
-            try:
-                # xadd using handler
-                if self.redis_stream_handler is not None:
-                    await self.redis_stream_handler.xadd(msg)
-                logger.info("[APP {app}] XADD {msg}".format(app=self._me, msg=msg))
-            except Exception as ex:
-                logger.warning("[APP {app}] XADD Failed {ex}".format(app=self._me, ex=ex))
+                    # logging
+                    logger.debug(
+                        "[APP {app}] From {src_stream}, {price}, {usd} -> To {dst_stream}, {price}, {krw}".format(
+                            app=self._me, src_stream=stream, dst_stream=_stream, price="price", usd=usd, krw=krw
+                        )
+                    )
+                except Exception as ex:
+                    logger.warning("[APP {app}] Transform Failed {ex}".format(app=self._me, ex=ex))
+
+                try:
+                    # xadd using handler
+                    if self.redis_stream_handler is not None:
+                        await self.redis_stream_handler.xadd(msg)
+                    logger.info("[APP {app}] XADD {msg}".format(app=self._me, msg=msg))
+                except Exception as ex:
+                    logger.warning("[APP {app}] XADD Failed {ex}".format(app=self._me, ex=ex))
 
 
 ################################################################
@@ -92,6 +100,11 @@ class GetPremiumApp(App):
         # parse stream
         parsed_stream = self.parser.parse(stream).named
 
+        # forex
+        forex_base = parsed_stream[CURRENCY].split(".")[-1]
+        if forex_base not in ["KRW", "basePrice"]:
+            return
+
         # message holder
         messages = []
 
@@ -109,7 +122,7 @@ class GetPremiumApp(App):
                                 parsed_stream["channel"],
                                 "-".join([parsed_bid_key[MARKET], parsed_stream[MARKET]]),
                                 parsed_stream["symbol"],
-                                parsed_stream[CURRENCY].split(".")[0],
+                                parsed_stream[CURRENCY].split(".", 1)[0],
                                 "-".join([parsed_bid_key[ORDERTYPE], parsed_stream[ORDERTYPE]]),
                                 "-".join([parsed_bid_key[RANK], parsed_stream[RANK]]),
                             ]
@@ -147,7 +160,7 @@ class GetPremiumApp(App):
                                 parsed_stream["channel"],
                                 "-".join([parsed_stream[MARKET], parsed_ask_key[MARKET]]),
                                 parsed_stream["symbol"],
-                                parsed_stream[CURRENCY].split(".")[0],
+                                parsed_stream[CURRENCY].split(".", 1)[0],
                                 "-".join([parsed_stream[ORDERTYPE], parsed_ask_key[ORDERTYPE]]),
                                 "-".join([parsed_stream[RANK], parsed_ask_key[RANK]]),
                             ]
