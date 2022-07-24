@@ -9,6 +9,7 @@ from typing import Callable
 import redis.asyncio as redis
 
 from ..const import DATETIME, KST
+from ..models import Message
 from .bithumb import BithumbApi
 from .forex import ForexApi
 from .ftx import FtxApi
@@ -74,7 +75,7 @@ class Updater(abc.ABC):
     @abc.abstractmethod
     async def parser(self, record):
         return {
-            "name": None,
+            "key": None,
             "value": None,
         }
 
@@ -104,15 +105,15 @@ class ForexUpdater(Updater, ForexApi):
     async def parser(self, records):
         messages = []
         for r in records:
-            msg = {
-                "name": "/".join([self.route, self.codes]),
-                "value": {
+            msg = Message(
+                key="/".join([self.route, self.codes]),
+                value={
                     DATETIME: datetime.fromtimestamp(r["timestamp"] / 1e3)
                     .astimezone(KST)
                     .isoformat(timespec="milliseconds"),
-                    **{k: v for k, v in r.items() if k.endswith("Price")},
+                    **{k: v for k, v in r.items() if k.endswith("Price") and v is not None},
                 },
-            }
+            )
             logger.debug(f"[UPDATER] FOREX Message Parsed: {msg}")
             messages += [msg]
 
@@ -157,15 +158,15 @@ class UpbitBalanceUpdater(ExchangeUpdater, UpbitApi):
                 continue
             free = float(r["balance"])
             locked = float(r["locked"])
-            msg = {
-                "name": f"exchange/balance/{self.MARKET}/{symbol}",
-                "value": {
+            msg = Message(
+                key=f"exchange/balance/{self.MARKET}/{symbol}",
+                value={
                     DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds")),
                     "total": free + locked,
                     "locked": locked,
                     "free": free,
                 },
-            }
+            )
 
             logger.debug(f"[UPDATER] Upbit Balance Message Parsed: {msg}")
             messages += [msg]
@@ -200,10 +201,10 @@ class BithumbBalanceUpdater(ExchangeUpdater, BithumbApi):
         for symbol, _value in holder.items():
             value = {DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds"))}
             value.update(_value)
-            msg = {
-                "name": f"exchange/balance/{self.MARKET}/{symbol.upper()}",
-                "value": value,
-            }
+            msg = Message(
+                key=f"exchange/balance/{self.MARKET}/{symbol.upper()}",
+                value=value,
+            )
 
             logger.debug(f"[UPDATER] Bithumb Balance Message Parsed: {msg}")
             messages += [msg]
@@ -221,15 +222,15 @@ class FtxBalanceUpdater(ExchangeUpdater, FtxApi):
     async def parser(self, records):
         messages = []
         for r in records:
-            msg = {
-                "name": f"exchange/balance/{self.MARKET}/{r['coin']}",
-                "value": {
+            msg = Message(
+                key=f"exchange/balance/{self.MARKET}/{r['coin']}",
+                value={
                     DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds")),
                     "total": float(r["total"]),
                     "locked": float(r["total"]) - float(r["free"]),
                     "free": float(r["free"]),
                 },
-            }
+            )
 
             logger.debug(f"[UPDATER] FTX Balance Message Parsed: {msg}")
             messages += [msg]
@@ -247,15 +248,15 @@ class FtxPositionUpdater(ExchangeUpdater, FtxApi):
     async def parser(self, records):
         messages = []
         for r in records:
-            msg = {
-                "name": f"exchange/balance/{self.MARKET}/{r['coin']}",
-                "value": {
+            msg = Message(
+                key=f"exchange/balance/{self.MARKET}/{r['coin']}",
+                value={
                     DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds")),
                     "total": float(r["total"]),
                     "locked": float(r["total"]) - float(r["free"]),
                     "free": float(r["free"]),
                 },
-            }
+            )
 
             logger.debug(f"[UPDATER] FTX Balance Message Parsed: {msg}")
             messages += [msg]

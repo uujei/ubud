@@ -17,10 +17,10 @@ from ..const import (
     CURRENCY,
     DATETIME,
     DT_FMT,
-    TS_MQ_SEND,
     DT_FMT_FLOAT,
     KST,
     MARKET,
+    MQ_SUBTOPICS,
     ORDERBOOK,
     ORDERTYPE,
     PRICE,
@@ -31,11 +31,12 @@ from ..const import (
     TRADE,
     TRADE_DATETIME,
     TS_MARKET,
+    TS_MQ_SEND,
     TS_WS_RECV,
     TS_WS_SEND,
-    MQ_SUBTOPICS,
     ts_to_strdt,
 )
+from ..models import Message
 from .base import BaseWebsocket
 
 logger = logging.getLogger(__name__)
@@ -152,7 +153,7 @@ class BithumbWebsocket(BaseWebsocket):
                     trade_datetime = _dt.isoformat(timespec="microseconds")
                     ts_market = _dt.timestamp()
 
-                    # Key (name)
+                    # key
                     _key = {
                         API_CATEGORY: THIS_API_CATEGORY,
                         CHANNEL: TRADE,
@@ -161,20 +162,19 @@ class BithumbWebsocket(BaseWebsocket):
                         ORDERTYPE: ASK if r["buySellGb"] == "1" else BID,
                         RANK: 0,
                     }
-                    name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
 
-                    # Value (value)
-                    value = {
-                        DATETIME: trade_datetime,
-                        PRICE: float(r["contPrice"]),
-                        QUANTITY: float(r["contQty"]),
-                        AMOUNT: float(r["contAmt"]),
-                        TS_MARKET: ts_market,
-                        TS_WS_RECV: ts_ws_recv,
-                    }
-
-                    # Message
-                    msg = {"name": name, "value": value}
+                    # update message
+                    msg = Message(
+                        key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                        value={
+                            DATETIME: trade_datetime,
+                            PRICE: float(r["contPrice"]),
+                            QUANTITY: float(r["contQty"]),
+                            AMOUNT: float(r["contAmt"]),
+                            TS_MARKET: ts_market,
+                            TS_WS_RECV: ts_ws_recv,
+                        },
+                    )
                     messages += [msg]
 
                     # logging
@@ -213,7 +213,7 @@ class BithumbWebsocket(BaseWebsocket):
                     if rank is None:
                         continue
 
-                    # Key (name)
+                    # key
                     _key = {
                         API_CATEGORY: THIS_API_CATEGORY,
                         CHANNEL: ORDERBOOK,
@@ -222,20 +222,19 @@ class BithumbWebsocket(BaseWebsocket):
                         ORDERTYPE: r["orderType"],
                         RANK: rank,
                     }
-                    name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
 
-                    # generaete message
-                    value = {
-                        DATETIME: ts_to_strdt(ts_ws_send),
-                        PRICE: price,
-                        QUANTITY: quantity,
-                        BOOK_COUNT: int(r["total"]),
-                        TS_WS_SEND: ts_ws_send,
-                        TS_WS_RECV: ts_ws_recv,
-                    }
-
-                    # Message
-                    msg = {"name": name, "value": value}
+                    # add message
+                    msg = Message(
+                        key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                        value={
+                            DATETIME: ts_to_strdt(ts_ws_send),
+                            PRICE: float(price),
+                            QUANTITY: float(quantity),
+                            BOOK_COUNT: int(r["total"]),
+                            TS_WS_SEND: ts_ws_send,
+                            TS_WS_RECV: ts_ws_recv,
+                        },
+                    )
                     messages += [msg]
 
                     # logging

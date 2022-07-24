@@ -34,6 +34,7 @@ from ..const import (
     TS_WS_SEND,
     ts_to_strdt,
 )
+from ..models import Message
 from .base import BaseWebsocket
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,7 @@ class UpbitWebsocket(BaseWebsocket):
             dt = datetime.fromtimestamp(float(body["sid"]) / 1e6).astimezone(KST).isoformat(timespec="microseconds")
             ts_ws_send = float(body["tms"]) / 1e3
 
-            # Key (name)
+            # key
             _key = {
                 API_CATEGORY: THIS_API_CATEGORY,
                 CHANNEL: TRADE,
@@ -144,20 +145,20 @@ class UpbitWebsocket(BaseWebsocket):
                 ORDERTYPE: body["ab"].lower(),
                 RANK: 0,
             }
-            name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
 
-            # DATETIME으로 ttms 대신 trade sid 사용 (체결 순서를 microseconds로)
-            value = {
-                DATETIME: dt,
-                TRADE_SID: body["sid"],
-                PRICE: body["tp"],
-                QUANTITY: body["tv"],
-                TS_WS_SEND: ts_ws_send,
-                TS_WS_RECV: ts_ws_recv,
-            }
-
-            # Message
-            msg = {"name": name, "value": value}
+            # add message
+            # [NOTE] DATETIME으로 ttms 대신 trade sid 사용 (체결 순서를 microseconds로)
+            msg = Message(
+                key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                value={
+                    DATETIME: dt,
+                    TRADE_SID: body["sid"],
+                    PRICE: float(body["tp"]),
+                    QUANTITY: float(body["tv"]),
+                    TS_WS_SEND: ts_ws_send,
+                    TS_WS_RECV: ts_ws_recv,
+                },
+            )
             messages += [msg]
 
             # logging
@@ -183,7 +184,7 @@ class UpbitWebsocket(BaseWebsocket):
                 for i, r in enumerate(body["obu"]):
                     # ASK
                     for _p, _q, _ordertype in [("ap", "as", ASK), ("bp", "bs", BID)]:
-                        # Key (name)
+                        # key
                         _key = {
                             API_CATEGORY: THIS_API_CATEGORY,
                             CHANNEL: ORDERBOOK,
@@ -192,17 +193,18 @@ class UpbitWebsocket(BaseWebsocket):
                             ORDERTYPE: _ordertype,
                             RANK: i + 1,
                         }
-                        name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
 
-                        value = {
-                            DATETIME: ts_to_strdt(ts_ws_send),
-                            PRICE: r[_p],
-                            QUANTITY: r[_q],
-                            TS_WS_SEND: ts_ws_send,
-                            TS_WS_RECV: ts_ws_recv,
-                        }
-                        # Message
-                        msg = {"name": name, "value": value}
+                        # add message
+                        msg = Message(
+                            key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                            value={
+                                DATETIME: ts_to_strdt(ts_ws_send),
+                                PRICE: float(r[_p]),
+                                QUANTITY: float(r[_q]),
+                                TS_WS_SEND: ts_ws_send,
+                                TS_WS_RECV: ts_ws_recv,
+                            },
+                        )
                         messages += [msg]
 
                         # logging

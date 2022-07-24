@@ -21,11 +21,11 @@ from ..const import (
     DATETIME,
     KST,
     MARKET,
+    MQ_SUBTOPICS,
     ORDERBOOK,
     ORDERTYPE,
     PRICE,
     QUANTITY,
-    MQ_SUBTOPICS,
     RANK,
     SYMBOL,
     TICKER,
@@ -38,6 +38,7 @@ from ..const import (
     UTC,
     ts_to_strdt,
 )
+from ..models import Message
 from .base import BaseWebsocket
 
 logger = logging.getLogger(__name__)
@@ -165,7 +166,7 @@ class FtxWebsocket(BaseWebsocket):
                 data = body["data"]
                 for record in data:
 
-                    # Key (name)
+                    # key
                     _key = {
                         API_CATEGORY: THIS_API_CATEGORY,
                         CHANNEL: TRADE,
@@ -174,39 +175,40 @@ class FtxWebsocket(BaseWebsocket):
                         ORDERTYPE: _buy_sell(record["side"]),
                         RANK: 0,
                     }
-                    name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
+                    key = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
 
                     # avoid duplicated datetime
                     trade_dt = datetime.fromisoformat(record["time"]).astimezone(KST)
 
-                    if name not in self._last_trade_dt.keys():
-                        self._last_trade_dt[name] = trade_dt - timedelta(microseconds=1)
+                    if key not in self._last_trade_dt.keys():
+                        self._last_trade_dt[key] = trade_dt - timedelta(microseconds=1)
 
-                    if name not in self._n_duplicated_dt.keys():
-                        self._n_duplicated_dt[name] = 0
+                    if key not in self._n_duplicated_dt.keys():
+                        self._n_duplicated_dt[key] = 0
 
-                    if trade_dt == self._last_trade_dt[name]:
-                        self._n_duplicated_dt[name] += 1
+                    if trade_dt == self._last_trade_dt[key]:
+                        self._n_duplicated_dt[key] += 1
                     else:
-                        self._n_duplicated_dt[name] = 0
+                        self._n_duplicated_dt[key] = 0
 
-                    self._last_trade_dt[name] = trade_dt
-                    seq_us = self._n_duplicated_dt[name]
+                    self._last_trade_dt[key] = trade_dt
+                    seq_us = self._n_duplicated_dt[key]
                     dt = (trade_dt + timedelta(microseconds=seq_us)).isoformat(timespec="microseconds")
 
-                    # Value (value)
-                    value = {
-                        DATETIME: dt,
-                        TRADE_SID: record["id"],
-                        PRICE: record["price"],
-                        QUANTITY: record["size"],
-                        TS_WS_SEND: datetime.fromisoformat(record["time"]).timestamp(),
-                        TS_WS_RECV: ts_ws_recv,
-                        "_side": record["side"],
-                        "_liquidation": record["liquidation"],
-                    }
-                    # Message
-                    msg = {"name": name, "value": value}
+                    # update message
+                    msg = Message(
+                        key=key,
+                        value={
+                            DATETIME: dt,
+                            TRADE_SID: record["id"],
+                            PRICE: float(record["price"]),
+                            QUANTITY: float(record["size"]),
+                            TS_WS_SEND: datetime.fromisoformat(record["time"]).timestamp(),
+                            TS_WS_RECV: ts_ws_recv,
+                            "_side": record["side"],
+                            "_liquidation": str(record["liquidation"]).lower(),
+                        },
+                    )
                     messages += [msg]
 
                     # logging
@@ -235,14 +237,14 @@ class FtxWebsocket(BaseWebsocket):
                             symbol=symbol_currency[SYMBOL],
                             currency=symbol_currency[CURRENCY],
                             orderType=orderType,
-                            price=price,
-                            quantity=quantity,
+                            price=float(price),
+                            quantity=float(quantity),
                             reverse=True if orderType == BID else False,
                         )
                         if rank is None:
                             continue
 
-                        # Key (name)
+                        # key
                         _key = {
                             API_CATEGORY: THIS_API_CATEGORY,
                             CHANNEL: ORDERBOOK,
@@ -251,18 +253,19 @@ class FtxWebsocket(BaseWebsocket):
                             ORDERTYPE: orderType,
                             RANK: rank,
                         }
-                        name = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
-
                         dt = datetime.fromtimestamp(data["time"]).astimezone(KST).isoformat(timespec="microseconds")
-                        value = {
-                            DATETIME: dt,
-                            PRICE: price,
-                            QUANTITY: quantity,
-                            TS_WS_SEND: data["time"],
-                            TS_WS_RECV: ts_ws_recv,
-                        }
-                        # Message
-                        msg = {"name": name, "value": value}
+
+                        # add message
+                        msg = Message(
+                            key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                            value={
+                                DATETIME: dt,
+                                PRICE: float(price),
+                                QUANTITY: float(quantity),
+                                TS_WS_SEND: float(data["time"]),
+                                TS_WS_RECV: ts_ws_recv,
+                            },
+                        )
                         messages += [msg]
 
                         # logging
@@ -316,8 +319,9 @@ class FtxWebsocket(BaseWebsocket):
 # DEBUG RUN
 ################################################################
 if __name__ == "__main__":
-    import sys
     import os
+    import sys
+
     import dotenv
 
     dotenv.load_dotenv()

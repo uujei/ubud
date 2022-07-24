@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 
 import redis
 
-from .stream import stream_balance_api, stream_forex_api, stream_websocket, connect_influxdb
-from .utils.app import repr_conf, parse_redis_addr
+from .stream import connect_influxdb, stream_balance_api, stream_common_apps, stream_forex_api, stream_websocket
+from .utils.app import parse_redis_addr, repr_conf
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -32,6 +32,7 @@ AVAILABLE_CURRENCIES = {
 
 DEFAULT_REDIS_ADDR = "localhost:6379"
 DEFAULT_REDIS_TOPIC = "ubud"
+DEFAULT_REDIS_XADD_MAXLEN = 100
 
 # HELPERS
 def _clean_namespace(redis_client, topic):
@@ -93,7 +94,7 @@ def ubud():
 @click.option("--currencies", default=DEFAULT_CURRENCIES, type=str)
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
-@click.option("--redis-xadd-maxlen", default=100, type=int)
+@click.option("--redis-xadd-maxlen", default=DEFAULT_REDIS_XADD_MAXLEN, type=int)
 @click.option("--secret-key", default=None, type=str)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
 def start_websocket_stream(
@@ -149,7 +150,7 @@ def start_websocket_stream(
 @click.option("-i", "--interval", default=0.6, type=float)
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
-@click.option("--redis-xadd-maxlen", default=100, type=int)
+@click.option("--redis-xadd-maxlen", default=DEFAULT_REDIS_XADD_MAXLEN, type=int)
 @click.option("--secret-key", default=None, type=str)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
 def start_balance_stream(market, symbols, interval, redis_topic, redis_addr, redis_xadd_maxlen, secret_key, log_level):
@@ -202,7 +203,7 @@ def start_balance_stream(market, symbols, interval, redis_topic, redis_addr, red
 @click.option("--codes", default="FRX.KRWUSD", type=str)
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
-@click.option("--redis-xadd-maxlen", default=100, type=int)
+@click.option("--redis-xadd-maxlen", default=DEFAULT_REDIS_XADD_MAXLEN, type=int)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
 def start_forex_stream(interval, codes, redis_addr, redis_topic, redis_xadd_maxlen, log_level):
 
@@ -229,6 +230,36 @@ def start_forex_stream(interval, codes, redis_addr, redis_topic, redis_xadd_maxl
 
 
 ################################################################
+# START COMMON APPS
+################################################################
+@ubud.command()
+@click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
+@click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
+@click.option("--redis-xadd-maxlen", default=DEFAULT_REDIS_XADD_MAXLEN, type=int)
+@click.option("--log-level", default=logging.WARNING, type=LogLevel())
+def start_common_apps(redis_addr, redis_topic, redis_xadd_maxlen, log_level):
+
+    # set log level
+    logging.basicConfig(
+        level=log_level,
+        format=DEFAULT_LOG_FORMAT,
+    )
+
+    # TASKS #
+    conf = {
+        "redis_addr": redis_addr,
+        "redis_topic": redis_topic,
+        "redis_xadd_maxlen": redis_xadd_maxlen,
+    }
+    logger.info(f"[UBUD] Start Common Apps - {repr_conf(conf)}")
+
+    # START TASKS
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+    asyncio.run(stream_common_apps(**conf))
+
+
+################################################################
 # START ALL STREAMS
 ################################################################
 @ubud.command()
@@ -240,7 +271,7 @@ def start_forex_stream(interval, codes, redis_addr, redis_topic, redis_xadd_maxl
 @click.option("--interval", default=0.5, type=float)
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
-@click.option("--redis-xadd-maxlen", default=100, type=int)
+@click.option("--redis-xadd-maxlen", default=DEFAULT_REDIS_XADD_MAXLEN, type=int)
 @click.option("--secret-key", default=None, type=str)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
 def start_stream(
@@ -270,6 +301,7 @@ def start_stream(
     # correct input
     market = [x.strip() for x in market.split(",")]
 
+    # WEBSOCKET ACTOR
     @ray.remote
     class WebsocketActor:
         def __init__(self, log_level):
@@ -293,7 +325,7 @@ def start_stream(
                 coroutines += [stream_websocket(**conf)]
             await asyncio.gather(*coroutines)
 
-    # TASKS #
+    # API ACTOR
     @ray.remote
     class ApiActor:
         def __init__(self, log_level):
@@ -329,6 +361,21 @@ def start_stream(
 
             await asyncio.gather(*coroutines)
 
+    # APP ACTOR
+    @ray.remote
+    class AppActor:
+        def __init__(self, log_level):
+            logging.basicConfig(level=log_level)
+
+        async def run(self):
+            conf = {
+                "redis_addr": redis_addr,
+                "redis_topic": redis_topic,
+                "redis_xadd_maxlen": redis_xadd_maxlen,
+            }
+            logger.info(f"[UBUD] Start App Stream - {repr_conf(conf)}")
+            await stream_common_apps(**conf)
+
     # clean redis before start
     redis_conf = parse_redis_addr(redis_addr)
     with redis.Redis(**redis_conf) as r:
@@ -341,13 +388,20 @@ def start_stream(
     # create instances
     websocket_actor = WebsocketActor.remote(log_level=log_level)
     api_actor = ApiActor.remote(log_level=log_level)
+    app_actor = AppActor.remote(log_level=log_level)
 
     # START TASKS
-    ray.get([websocket_actor.run.remote(), api_actor.run.remote()])
+    ray.get(
+        [
+            websocket_actor.run.remote(),
+            api_actor.run.remote(),
+            app_actor.run.remote(),
+        ]
+    )
 
 
 ################################################################
-# START CONNECT INFLUXDB
+# START INFLUXDB SINK
 ################################################################
 @ubud.command()
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
@@ -355,7 +409,7 @@ def start_stream(
 @click.option("--influxdb-url", default=None, type=str)
 @click.option("--influxdb-write-interval", default=0.1, type=float)
 @click.option("--influxdb-flush-sec", default=0.1, type=float)
-@click.option("--influxdb-flush-size", default=100, type=float)
+@click.option("--influxdb-flush-size", default=3000, type=float)
 @click.option("--secret-key", default="theone", type=str)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
 def start_influxdb_sink(

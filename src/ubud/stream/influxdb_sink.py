@@ -16,6 +16,7 @@ from ..const import (
     CURRENCY,
     DATETIME,
     EXCHANGE_KEY_RULE,
+    PREMIUM_KEY_RULE,
     FOREX_KEY_RULE,
     MARKET,
     MQ_SUBTOPICS,
@@ -52,6 +53,11 @@ FOREX_KEY_PARSER = parse.compile("/".join(["{topic}", _forex_subtopics]))
 FOREX_TAGS = ["channel", "codes"]
 FOREX_FIELDS = ["basePrice", "highPrice", "lowPrice", "cashBuyingPrice", "cashSellingPrice"]
 
+_premium_subtopics = "/".join([f"{{{t}}}" for t in PREMIUM_KEY_RULE])
+PREMIUM_KEY_PARSER = parse.compile("/".join(["{topic}", _premium_subtopics]))
+PREMIUM_TAGS = [MARKET, CHANNEL, SYMBOL, CURRENCY, ORDERTYPE, RANK]
+PREMIUM_FIELDS = ["factor", "premium"]
+
 
 ################################################################
 # InfluxDB Connector
@@ -61,7 +67,7 @@ class InfluxdDBConnector:
         self,
         redis_client: redis.Redis,
         redis_topic: str = "ubud",
-        redis_categories: list = ["quotation", "forex"],
+        redis_categories: list = ["quotation", "premium", "forex"],
         redis_xread_interval: float = 0.1,
         redis_xread_count: int = None,
         redis_smember_interval: float = 5.0,
@@ -75,7 +81,7 @@ class InfluxdDBConnector:
         # properties
         self.redis_client = redis_client
         self.redis_topic = redis_topic
-        self.redis_categories = [f"{self.redis_topic}-stream/{cat}" for cat in redis_categories]
+        self.redis_categories = [f"{self.redis_topic}/{cat}" for cat in redis_categories]
 
         # stream opts
         self.redis_xread_interval = redis_xread_interval
@@ -98,13 +104,13 @@ class InfluxdDBConnector:
         # parser
         self.PARSER = {
             "quotation": self.parse_quotation,
+            "premium": self.parse_premium,
             "forex": self.parse_forex,
         }
 
         # stream management
-        self._redis_stream_names_key = f"{self.redis_topic}-stream/keys"
-        self._redis_streams = []
-        self._redis_stream_offsets = dict()
+        self._streams_key = f"{self.redis_topic}/keys"
+        self._offsets = dict()
 
         # [NOTE] refresh
         # stream list update가 리소스에 부담되어 주기 설정, 매번 update할 때보다 CPU 사용률 20~30% 가량 감소
@@ -118,13 +124,10 @@ class InfluxdDBConnector:
         await asyncio.gather(self.updater(), self.collector(), self.writer())
 
     async def updater(self):
-        """
-        Update Streams
-        """
         while True:
             try:
                 # 지정한 category에 속하는 stream만 구독
-                streams = await self.redis_client.smembers(self._redis_stream_names_key)
+                streams = await self.redis_client.smembers(self._streams_key)
                 self._update_new_streams(streams)
             except Exception as ex:
                 logger.warning("[INFLUXDB] Updater Failed - {0}".format(ex))
@@ -133,18 +136,22 @@ class InfluxdDBConnector:
     async def collector(self):
         while True:
             try:
-                if self._redis_stream_offsets:
-                    streams = await self.redis_client.xread({k: v for k, v in self._redis_stream_offsets.items()})
-                    for name, stream in streams:
-                        for _offset, data in stream:
+                if self._offsets:
+                    streams = await self.redis_client.xread({k: v for k, v in self._offsets.items()})
+                    for key, messages in streams:
+                        source = key.split("/", 2)[1]
+                        if source not in self.PARSER.keys():
+                            continue
+                        parser = self.PARSER[source]
+                        for _offset, value in messages:
                             try:
-                                p = self.parser(key=data["name"], value=data["value"])
+                                p = parser(source=source, key=key, value=value)
                                 if p is not None:
                                     self._queue.append(p)
                             except Exception as ex:
                                 logger.warning("[INFLUXDB] Parse Error {0}".format(ex))
                                 traceback.print_exc()
-                        self._redis_stream_offsets.update({name: _offset})
+                        self._offsets.update({key: _offset})
                 await asyncio.sleep(self.redis_xread_interval)
             except Exception as ex:
                 logger.warning("[INFLUXDB] Collector Failed - {0}".format(ex))
@@ -153,44 +160,36 @@ class InfluxdDBConnector:
         t0 = time.time()
         while True:
             now = time.time()
-            n_points = len(self._queue)
-            if n_points > 0:
-                if now - t0 > self.influxdb_flush_sec or n_points > self.influxdb_flush_size:
+            n = len(self._queue)
+            if n > 0:
+                if now - t0 > self.influxdb_flush_sec or n > self.influxdb_flush_size:
                     try:
                         async with InfluxDBClientAsync(**self.influxdb_conf) as client:
                             write_api = client.write_api()
-                            ack = await write_api.write(self.redis_topic, self.influxdb_org, self._queue[:n_points])
+                            ack = await write_api.write(self.redis_topic, self.influxdb_org, self._queue[:n])
                             if not ack:
                                 raise
                             logger.info(
                                 "[INFLUXDB] Write {0:4d} Points into Bucket {1}, Sample {2}".format(
-                                    len(self._queue), self.redis_topic, self._queue[-1]
+                                    n, self.redis_topic, self._queue[n - 1]
                                 )
                             )
-                        self._queue = self._queue[n_points:]
+                        self._queue = self._queue[n:]
                         t0 = now
                     except Exception as ex:
                         logger.warning(f"[INFLUXDB] Write Failed - {ex}")
             # wait
             await asyncio.sleep(self.influxdb_write_interval)
 
-    def parser(self, key, value):
-        source, sub = key.split("/", 3)[1:3]
-        if source == "exchange":
-            source = sub
-        if source not in self.PARSER.keys():
-            return
-        return self.PARSER[source](source=source, key=key, value=value)
-
     def _update_new_streams(self, streams):
         streams = [s for s in streams if any([s.startswith(c) for c in self.redis_categories])]
-        streams = [s for s in streams if s not in self._redis_stream_offsets.keys()]
-        _ = [self._redis_stream_offsets.update({s: "0" for s in streams})]
+        streams = [s for s in streams if s not in self._offsets.keys()]
+        _offset = self._get_offset()
+        _ = [self._offsets.update({s: _offset for s in streams})]
 
     @staticmethod
     def parse_quotation(source, key, value):
         key = QUOTATION_KEY_PARSER.parse(key).named
-        value = json.loads(value)
         p = {
             "measurement": source,
             "tags": {k: v for k, v in key.items() if k in QUOTATION_TAGS},
@@ -201,9 +200,20 @@ class InfluxdDBConnector:
         return p
 
     @staticmethod
+    def parse_premium(source, key, value):
+        key = PREMIUM_KEY_PARSER.parse(key).named
+        p = {
+            "measurement": source,
+            "tags": {k: v for k, v in key.items() if k in PREMIUM_TAGS},
+            "fields": {k: float(v) for k, v in value.items() if k in PREMIUM_FIELDS},
+            "time": value[DATETIME],
+        }
+        logger.debug("[INFLUXDB] Premium Record Parsed: {0}".format(p))
+        return p
+
+    @staticmethod
     def parse_forex(source, key, value):
         key = FOREX_KEY_PARSER.parse(key).named
-        value = json.loads(value)
         p = {
             "measurement": source,
             "tags": {k: v for k, v in key.items() if k in FOREX_TAGS},
@@ -224,7 +234,7 @@ class InfluxdDBConnector:
 async def connect_influxdb(
     redis_addr: str = "localhost:6379",
     redis_topic: str = "ubud",
-    redis_categories: list = ["quotation", "forex"],
+    redis_categories: list = ["quotation", "premium", "forex"],
     redis_xread_interval: float = 0.1,
     redis_xread_count: int = None,
     redis_smember_interval: float = 5.0,
@@ -233,7 +243,7 @@ async def connect_influxdb(
     influxdb_token: str = "mytoken",
     influxdb_write_interval: float = 0.1,
     influxdb_flush_sec: float = 1,
-    influxdb_flush_size: float = 100,
+    influxdb_flush_size: float = 3000,
 ):
 
     # redis_client
