@@ -86,9 +86,14 @@ class GetPremiumApp(App):
     def select_counters(self, parsed_stream):
         _stream = parsed_stream.copy()
         counter_orderType = "bid" if _stream[ORDERTYPE] == "ask" else "ask"
-        _stream.update({ORDERTYPE: counter_orderType})
+        _stream.update(
+            {
+                ORDERTYPE: counter_orderType,
+                CURRENCY: _stream[CURRENCY].split(".")[0] + "*",
+            }
+        )
         anti_pattern = self.rule.format(**_stream)
-        _stream.update({MARKET: "*", CURRENCY: _stream[CURRENCY].split(".")[0] + "*"})
+        _stream.update({MARKET: "*"})
         pattern = self.rule.format(**_stream)
         return {k: v for k, v in self.store.items() if fnmatch(k, pattern) and not fnmatch(k, anti_pattern)}
 
