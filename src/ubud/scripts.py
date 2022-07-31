@@ -46,24 +46,42 @@ def load_secret(secret_key):
     if secret_key is None:
         load_dotenv()
         return {
-            "upbit": {"apiKey": os.getenv("UPBIT_API_KEY"), "apiSecret": os.getenv("UPBIT_API_SECRET")},
-            "bithumb": {"apiKey": os.getenv("BITHUMB_API_KEY"), "apiSecret": os.getenv("BITHUMB_API_SECRET")},
-            "ftx": {"apiKey": os.getenv("FTX_API_KEY"), "apiSecret": os.getenv("FTX_API_SECRET")},
+            "upbit": {
+                "apiKey": os.getenv("UPBIT_API_KEY"),
+                "apiSecret": os.getenv("UPBIT_API_SECRET"),
+            },
+            "bithumb": {
+                "apiKey": os.getenv("BITHUMB_API_KEY"),
+                "apiSecret": os.getenv("BITHUMB_API_SECRET"),
+            },
+            "ftx": {
+                "apiKey": os.getenv("FTX_API_KEY"),
+                "apiSecret": os.getenv("FTX_API_SECRET"),
+            },
             "influxdb": {
                 "influxdb_url": os.getenv("INFLUXDB_URL"),
                 "influxdb_org": os.getenv("INFLUXDB_ORG"),
                 "influxdb_token": os.getenv("INFLUXDB_TOKEN"),
             },
         }
-    _secret = get_secrets(secret_key)
+    secrets = get_secrets(secret_key)
     return {
-        "upbit": {"apiKey": _secret["ubk"], "apiSecret": _secret["ubs"]},
-        "bithumb": {"apiKey": _secret["btk"], "apiSecret": _secret["bts"]},
-        "ftx": {"apiKey": _secret["ftk"], "apiSecret": _secret["fts"]},
+        "upbit": {
+            "apiKey": secrets["UPBIT_API_KEY"],
+            "apiSecret": secrets["UPBIT_API_SECRET"],
+        },
+        "bithumb": {
+            "apiKey": secrets["BITHUMB_API_KEY"],
+            "apiSecret": secrets["BITHUMB_API_SECRET"],
+        },
+        "ftx": {
+            "apiKey": secrets["FTX_API_KEY"],
+            "apiSecret": secrets["FTX_API_SECRET"],
+        },
         "influxdb": {
-            "influxdb_url": _secret["iu"],
-            "influxdb_org": _secret["io"],
-            "influxdb_token": _secret["it"],
+            "influxdb_url": secrets["INFLUXDB_URL"],
+            "influxdb_org": secrets["INFLUXDB_TOKEN"],
+            "influxdb_token": secrets["INFLUXDB_ORG"],
         },
     }
 
