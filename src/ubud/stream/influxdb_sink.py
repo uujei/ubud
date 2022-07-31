@@ -160,9 +160,10 @@ class InfluxdDBConnector:
         t0 = time.time()
         while True:
             now = time.time()
+            elapsed = now - t0
             n = len(self._queue)
             if n > 0:
-                if now - t0 > self.influxdb_flush_sec or n > self.influxdb_flush_size:
+                if (elapsed > self.influxdb_flush_sec) or (n > self.influxdb_flush_size):
                     try:
                         async with InfluxDBClientAsync(**self.influxdb_conf) as client:
                             write_api = client.write_api()
@@ -243,7 +244,7 @@ async def connect_influxdb(
     influxdb_token: str = "mytoken",
     influxdb_write_interval: float = 0.1,
     influxdb_flush_sec: float = 1,
-    influxdb_flush_size: float = 3000,
+    influxdb_flush_size: float = 5000,
 ):
 
     # redis_client
