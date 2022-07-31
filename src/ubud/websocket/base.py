@@ -8,9 +8,57 @@ from typing import Callable
 
 import websockets
 
-from ..const import ts_to_strdt
+from ..const import ASK, BID, PRICE, QUANTITY, RANK, ts_to_strdt
 
 logger = logging.getLogger(__name__)
+
+
+################################################################
+# Orderbook
+################################################################
+class Orderbook:
+    def __init__(self, orderType, depth=15):
+        assert orderType in [ASK, BID], f"[ERROR] Wrong orderType {orderType}! - {ASK} or {BID} is available"
+        self.orderType = orderType
+        self.depth = depth
+
+        # [NOTE]
+        # reverse = False for ASK - 매도호가는 낮을수록 선순위
+        # reverse = True for BID - 매수호가는 높을수록 선순위
+        self.reverse = False if self.orderType == ASK else True
+
+        # orderbook storage
+        self.orderbooks = dict()
+
+    def __call__(self):
+        # [NOTE]
+        # depth보다 원소 수가 하나 더 많은 것은 trade 처리 때문
+        self.orderbooks = {
+            k: self.orderbooks[k]
+            for i, k in enumerate(sorted(self.orderbooks, reverse=self.reverse))
+            if i < self.depth + 1
+        }
+        return [{**v, RANK: i + 1} for i, (_, v) in enumerate(self.orderbooks.items()) if i < self.depth]
+
+    def update(self, order):
+        # [NOTE] Trade 발생시 Quantity -1의 Order를 업데이트
+        # Websocket 불안정하여 끊어질 경우 Orderbook 갱신이 제대로 되지 않는 경우 있음.
+        # trade 발생하면 그보다 높거나(매도호가), 낮은(매수호가) 주문만 남김.
+        if order[QUANTITY] < 0.0:
+            if self.orderType == ASK:
+                self.orderbooks = {k: v for k, v in self.orderbooks if k > order[PRICE]}
+            else:
+                self.orderbooks = {k: v for k, v in self.orderbooks if k < order[PRICE]}
+            return
+
+        # Quantity가 0으로 변경된 호가를 저장된 Orderbook에서 삭제
+        if order[QUANTITY] == 0.0:
+            if order[PRICE] in self.orderbooks:
+                self.orderbooks.pop(order[PRICE])
+            return
+
+        # 위 두 경우 외에는 Orderbook 업데이트
+        self.orderbooks.update({order[PRICE]: order})
 
 
 ################################################################

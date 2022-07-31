@@ -37,7 +37,7 @@ from ..const import (
     ts_to_strdt,
 )
 from ..models import Message
-from .base import BaseWebsocket
+from .base import BaseWebsocket, Orderbook
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,8 @@ class BithumbWebsocket(BaseWebsocket):
         apiKey: str = None,
         apiSecret: str = None,
     ):
+        super().__init__()
+
         # dummy properties for api consistency
         self.apiKey = apiKey
         self.apiSecret = apiSecret
@@ -107,17 +109,16 @@ class BithumbWebsocket(BaseWebsocket):
         # HANDLER
         self.handler = handler
 
-        # Bithumb, FTX는 변경호가를 제공 ~ Store 필요
-        self._orderbook_len = 15
-        self._orderbook = dict()
+        # ORDERBOOKS
+        self.orderbooks = {}
         for sc in self.symbols:
             _sc = _split_symbol(sc)
             symbol, currency = _sc[SYMBOL], _sc[CURRENCY]
-            if symbol not in self._orderbook:
-                self._orderbook[symbol] = dict()
-            if currency not in self._orderbook[symbol]:
-                self._orderbook[symbol][currency] = dict()
-            self._orderbook[symbol][currency] = {ASK: dict(), BID: dict()}
+            if symbol not in self.orderbooks:
+                self.orderbooks[symbol] = dict()
+            if currency not in self.orderbooks[symbol]:
+                self.orderbooks[symbol][currency] = dict()
+            self.orderbooks[symbol][currency] = {ASK: Orderbook(orderType=ASK), BID: Orderbook(orderType=BID)}
 
     @staticmethod
     def _generate_ws_params(channel, symbols):
@@ -149,6 +150,14 @@ class BithumbWebsocket(BaseWebsocket):
                 content = body["content"]
                 for r in content["list"]:
                     symbol_currency = _split_symbol(r["symbol"])
+                    symbol = symbol_currency[SYMBOL]
+                    currency = symbol_currency[CURRENCY]
+                    orderType = ASK if r["buySellGb"] == "1" else BID
+
+                    price = float(r["contPrice"])
+                    quantity = float(r["contQty"])
+                    amount = float(r["contAmt"])
+
                     _dt = datetime.fromisoformat(r["contDtm"]).astimezone(KST)
                     trade_datetime = _dt.isoformat(timespec="microseconds")
                     ts_market = _dt.timestamp()
@@ -158,8 +167,9 @@ class BithumbWebsocket(BaseWebsocket):
                         API_CATEGORY: THIS_API_CATEGORY,
                         CHANNEL: TRADE,
                         MARKET: THIS_MARKET,
-                        **symbol_currency,
-                        ORDERTYPE: ASK if r["buySellGb"] == "1" else BID,
+                        SYMBOL: symbol,
+                        CURRENCY: currency,
+                        ORDERTYPE: orderType,
                         RANK: 0,
                     }
 
@@ -168,14 +178,17 @@ class BithumbWebsocket(BaseWebsocket):
                         key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
                         value={
                             DATETIME: trade_datetime,
-                            PRICE: float(r["contPrice"]),
-                            QUANTITY: float(r["contQty"]),
-                            AMOUNT: float(r["contAmt"]),
+                            PRICE: price,
+                            QUANTITY: quantity,
+                            AMOUNT: amount,
                             TS_MARKET: ts_market,
                             TS_WS_RECV: ts_ws_recv,
                         },
                     )
                     messages += [msg]
+
+                    # Orderbook 정리 - 임의의 음수 QUANTITY를 입력
+                    self.orderbooks[symbol][currency][orderType].update({PRICE: price, QUANTITY: -1.0})
 
                     # logging
                     logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
@@ -195,50 +208,56 @@ class BithumbWebsocket(BaseWebsocket):
                 content = body["content"]
                 ts_ws_send = int(content["datetime"]) / 1e6
 
-                for r in content["list"]:
-                    symbol_currency = _split_symbol(r["symbol"])
-                    price = float(r["price"])
-                    orderType = r["orderType"]
-                    quantity = float(r["quantity"])
+                for symbol in self.symbols:
+                    new_orderbooks = [o for o in content["list"] if o["symbol"] == symbol]
 
-                    # get rank of orderbook
-                    rank = self._rank_orderbook(
-                        symbol=symbol_currency[SYMBOL],
-                        currency=symbol_currency[CURRENCY],
-                        orderType=orderType,
-                        price=price,
-                        quantity=quantity,
-                        reverse=True if orderType == BID else False,
-                    )
-                    if rank is None:
+                    if len(new_orderbooks) == 0:
                         continue
 
-                    # key
-                    _key = {
-                        API_CATEGORY: THIS_API_CATEGORY,
-                        CHANNEL: ORDERBOOK,
-                        MARKET: THIS_MARKET,
-                        **symbol_currency,
-                        ORDERTYPE: r["orderType"],
-                        RANK: rank,
-                    }
+                    symbol_currency = _split_symbol(new_orderbooks[0]["symbol"])
+                    symbol = symbol_currency[SYMBOL]
+                    currency = symbol_currency[CURRENCY]
 
-                    # add message
-                    msg = Message(
-                        key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
-                        value={
-                            DATETIME: ts_to_strdt(ts_ws_send),
-                            PRICE: float(price),
-                            QUANTITY: float(quantity),
-                            BOOK_COUNT: int(r["total"]),
-                            TS_WS_SEND: ts_ws_send,
-                            TS_WS_RECV: ts_ws_recv,
-                        },
-                    )
-                    messages += [msg]
+                    for orderType in [ASK, BID]:
+                        # Register New Orderbooks
+                        for orderbook in [o for o in new_orderbooks if o["orderType"] == orderType]:
+                            # update
+                            self.orderbooks[symbol][currency][orderType].update(
+                                {
+                                    PRICE: float(orderbook["price"]),
+                                    QUANTITY: float(orderbook["quantity"]),
+                                }
+                            )
+                        # Append Messages
+                        orderbooks = self.orderbooks[symbol][currency][orderType]()
+                        for orderbook in orderbooks:
+                            logger.warn(orderbook)
+                            # key
+                            _key = {
+                                API_CATEGORY: THIS_API_CATEGORY,
+                                CHANNEL: ORDERBOOK,
+                                MARKET: THIS_MARKET,
+                                SYMBOL: symbol,
+                                CURRENCY: currency,
+                                ORDERTYPE: orderType,
+                                RANK: orderbook[RANK],
+                            }
 
-                    # logging
-                    logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+                            # add message
+                            msg = Message(
+                                key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                                value={
+                                    DATETIME: ts_to_strdt(ts_ws_send),
+                                    PRICE: orderbook[PRICE],
+                                    QUANTITY: orderbook[QUANTITY],
+                                    TS_WS_SEND: ts_ws_send,
+                                    TS_WS_RECV: ts_ws_recv,
+                                },
+                            )
+                            messages += [msg]
+
+                            # logging
+                            logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
 
         except Exception as ex:
             logger.warn(f"[WEBSOCKET] Bithumb Orderbook Parser Error - {ex}")
@@ -246,47 +265,11 @@ class BithumbWebsocket(BaseWebsocket):
 
         return messages
 
-    # ORDERBOOK HELPER
-    def _rank_orderbook(self, symbol, currency, orderType, price, quantity, reverse=False):
-        # pop zero quantity orderbook
-        if quantity == 0.0:
-            if price in self._orderbook[symbol][currency][orderType].keys():
-                self._orderbook[symbol][currency][orderType].pop(price)
-                self._orderbook[symbol][currency][orderType] = self._rank(
-                    self._orderbook[symbol][currency][orderType], reverse=reverse, maxlen=self._orderbook_len
-                )
-            return
-
-        # add new orderbook unit
-        if price not in self._orderbook[symbol][currency][orderType].keys():
-            self._orderbook[symbol][currency][orderType][price] = -1
-
-        # sort orderbook ~ note orderbook_len + 1 is useful when some orderbook is popped
-        self._orderbook[symbol][currency][orderType] = self._rank(
-            self._orderbook[symbol][currency][orderType], reverse=reverse, maxlen=self._orderbook_len
-        )
-
-        # return
-        if len(self._orderbook[symbol][currency][orderType]) < self._orderbook_len:
-            return None
-
-        rank = self._orderbook[symbol][currency][orderType].get(price)
-        if rank is None or rank > self._orderbook_len:
-            return
-        return rank
-
-    # rank
-    @staticmethod
-    def _rank(x, reverse, maxlen):
-        return {k: i + 1 for i, (k, _) in enumerate(sorted(x.items(), reverse=reverse)) if i < maxlen + 1}
-
 
 ################################################################
 # DEBUG RUN
 ################################################################
 if __name__ == "__main__":
-    import sys
-
     logger.setLevel(logging.DEBUG)
     log_handler = logging.StreamHandler()
     logger.addHandler(log_handler)

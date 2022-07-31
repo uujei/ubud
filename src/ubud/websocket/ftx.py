@@ -39,7 +39,7 @@ from ..const import (
     ts_to_strdt,
 )
 from ..models import Message
-from .base import BaseWebsocket
+from .base import BaseWebsocket, Orderbook
 
 logger = logging.getLogger(__name__)
 
@@ -131,17 +131,16 @@ class FtxWebsocket(BaseWebsocket):
         self._last_trade_dt = dict()  # datetime.now(tz=KST)
         self._n_duplicated_dt = dict()
 
-        # Bithumb, FTX는 변경호가를 제공 ~ Store 필요
-        self._orderbook_len = 15
-        self._orderbook = dict()
+        # ORDERBOOKS
+        self.orderbooks = {}
         for sc in self.symbols:
             _sc = _split_symbol(sc)
             symbol, currency = _sc[SYMBOL], _sc[CURRENCY]
-            if symbol not in self._orderbook:
-                self._orderbook[symbol] = dict()
-            if currency not in self._orderbook[symbol]:
-                self._orderbook[symbol][currency] = dict()
-            self._orderbook[symbol][currency] = {ASK: dict(), BID: dict()}
+            if symbol not in self.orderbooks:
+                self.orderbooks[symbol] = dict()
+            if currency not in self.orderbooks[symbol]:
+                self.orderbooks[symbol][currency] = dict()
+            self.orderbooks[symbol][currency] = {ASK: Orderbook(orderType=ASK), BID: Orderbook(orderType=BID)}
 
     def _generate_ws_params(self):
         ts = int(time.time() * 1000)
@@ -163,34 +162,38 @@ class FtxWebsocket(BaseWebsocket):
         try:
             if body["type"] == "update":
                 symbol_currency = _split_symbol(body["market"])
+                symbol = symbol_currency[SYMBOL]
+                currency = symbol_currency[CURRENCY]
+
                 data = body["data"]
                 for record in data:
+
+                    # orderType
+                    orderType = _buy_sell(record["side"])
+                    price = float(record["price"])
 
                     # key
                     _key = {
                         API_CATEGORY: THIS_API_CATEGORY,
                         CHANNEL: TRADE,
                         MARKET: THIS_MARKET,
-                        **symbol_currency,
-                        ORDERTYPE: _buy_sell(record["side"]),
+                        SYMBOL: symbol,
+                        CURRENCY: currency,
+                        ORDERTYPE: orderType,
                         RANK: 0,
                     }
                     key = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
 
                     # avoid duplicated datetime
                     trade_dt = datetime.fromisoformat(record["time"]).astimezone(KST)
-
                     if key not in self._last_trade_dt.keys():
                         self._last_trade_dt[key] = trade_dt - timedelta(microseconds=1)
-
                     if key not in self._n_duplicated_dt.keys():
                         self._n_duplicated_dt[key] = 0
-
                     if trade_dt == self._last_trade_dt[key]:
                         self._n_duplicated_dt[key] += 1
                     else:
                         self._n_duplicated_dt[key] = 0
-
                     self._last_trade_dt[key] = trade_dt
                     seq_us = self._n_duplicated_dt[key]
                     dt = (trade_dt + timedelta(microseconds=seq_us)).isoformat(timespec="microseconds")
@@ -201,7 +204,7 @@ class FtxWebsocket(BaseWebsocket):
                         value={
                             DATETIME: dt,
                             TRADE_SID: record["id"],
-                            PRICE: float(record["price"]),
+                            PRICE: price,
                             QUANTITY: float(record["size"]),
                             TS_WS_SEND: datetime.fromisoformat(record["time"]).timestamp(),
                             TS_WS_RECV: ts_ws_recv,
@@ -210,6 +213,9 @@ class FtxWebsocket(BaseWebsocket):
                         },
                     )
                     messages += [msg]
+
+                    # Orderbook 정리 - 임의의 음수 QUANTITY를 입력
+                    self.orderbooks[symbol][currency][orderType].update({PRICE: price, QUANTITY: -1.0})
 
                     # logging
                     logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
@@ -229,40 +235,40 @@ class FtxWebsocket(BaseWebsocket):
         try:
             if body["type"] == "update":
                 symbol_currency = _split_symbol(body["market"])
+                symbol = symbol_currency[SYMBOL]
+                currency = symbol_currency[CURRENCY]
+
                 data = body["data"]
                 for _type, orderType in [("asks", ASK), ("bids", BID)]:
                     for price, quantity in data[_type]:
-                        # get rank of orderbook
-                        rank = self._rank_orderbook(
-                            symbol=symbol_currency[SYMBOL],
-                            currency=symbol_currency[CURRENCY],
-                            orderType=orderType,
-                            price=float(price),
-                            quantity=float(quantity),
-                            reverse=True if orderType == BID else False,
+                        # update
+                        ts = data["time"]
+                        dt = datetime.fromtimestamp(ts).astimezone(KST).isoformat(timespec="microseconds")
+                        self.orderbooks[symbol][currency][orderType].update(
+                            {PRICE: float(price), QUANTITY: float(quantity), DATETIME: dt, TS_WS_SEND: float(ts)}
                         )
-                        if rank is None:
-                            continue
 
+                    orderbooks = self.orderbooks[symbol][currency][orderType]()
+                    for orderbook in orderbooks:
                         # key
                         _key = {
                             API_CATEGORY: THIS_API_CATEGORY,
                             CHANNEL: ORDERBOOK,
                             MARKET: THIS_MARKET,
-                            **symbol_currency,
+                            SYMBOL: symbol,
+                            CURRENCY: currency,
                             ORDERTYPE: orderType,
-                            RANK: rank,
+                            RANK: orderbook[RANK],
                         }
-                        dt = datetime.fromtimestamp(data["time"]).astimezone(KST).isoformat(timespec="microseconds")
 
                         # add message
                         msg = Message(
                             key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
                             value={
-                                DATETIME: dt,
-                                PRICE: float(price),
-                                QUANTITY: float(quantity),
-                                TS_WS_SEND: float(data["time"]),
+                                DATETIME: orderbook[DATETIME],
+                                PRICE: orderbook[PRICE],
+                                QUANTITY: orderbook[QUANTITY],
+                                TS_WS_SEND: orderbook[TS_WS_SEND],
                                 TS_WS_RECV: ts_ws_recv,
                             },
                         )
@@ -279,40 +285,6 @@ class FtxWebsocket(BaseWebsocket):
             traceback.print_exc()
 
         return messages
-
-    # ORDERBOOK HELPER
-    def _rank_orderbook(self, symbol, currency, orderType, price, quantity, reverse=False):
-        # pop zero quantity orderbook
-        if quantity == 0.0:
-            if price in self._orderbook[symbol][currency][orderType].keys():
-                self._orderbook[symbol][currency][orderType].pop(price)
-                self._orderbook[symbol][currency][orderType] = self._rank(
-                    self._orderbook[symbol][currency][orderType], reverse=reverse, maxlen=self._orderbook_len
-                )
-            return
-
-        # add new orderbook unit
-        if price not in self._orderbook[symbol][currency][orderType].keys():
-            self._orderbook[symbol][currency][orderType][price] = -1
-
-        # sort orderbook ~ note orderbook_len + 1 is useful when some orderbook is popped
-        self._orderbook[symbol][currency][orderType] = self._rank(
-            self._orderbook[symbol][currency][orderType], reverse=reverse, maxlen=self._orderbook_len
-        )
-
-        # return
-        if len(self._orderbook[symbol][currency][orderType]) < self._orderbook_len:
-            return None
-
-        rank = self._orderbook[symbol][currency][orderType].get(price)
-        if rank is None or rank > self._orderbook_len:
-            return
-        return rank
-
-    # rank
-    @staticmethod
-    def _rank(x, reverse, maxlen):
-        return {k: i + 1 for i, (k, _) in enumerate(sorted(x.items(), reverse=reverse)) if i < maxlen + 1}
 
 
 ################################################################

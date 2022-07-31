@@ -43,6 +43,8 @@ class OrdersPost(BaseModel):
     method: str = "post"
     route: str = "/orders"
     market: str
+    volume: float
+    price: float
     side: str
     ord_type: str
 
@@ -54,8 +56,7 @@ class OrdersPost(BaseModel):
 class OrderDelete(BaseModel):
     method: str = "delete"
     route: str = "/order"
-    uuid: str = None
-    identifier: str = None
+    uuid: str
 
     class Config:
         extra = Extra.forbid
