@@ -97,6 +97,7 @@ class FtxWebsocket(BaseWebsocket):
         channel: str,
         symbols: list,
         currencies: list = ["USD", "-PERP"],
+        orderbook_depth: int = 5,
         handler: Callable = None,
         apiKey: str = None,
         apiSecret: str = None,
@@ -115,6 +116,7 @@ class FtxWebsocket(BaseWebsocket):
         assert isinstance(currencies, (list, tuple)), "[ERROR] 'currencies' should be a list!"
         self.symbols = [_concat_symbol_currency(s, c) for s in symbols for c in currencies]
         self.ws_params = self._generate_ws_params()
+        self.orderbook_depth = orderbook_depth
 
         # SELECT PARSER
         if channel == "trade":
@@ -140,7 +142,10 @@ class FtxWebsocket(BaseWebsocket):
                 self.orderbooks[symbol] = dict()
             if currency not in self.orderbooks[symbol]:
                 self.orderbooks[symbol][currency] = dict()
-            self.orderbooks[symbol][currency] = {ASK: Orderbook(orderType=ASK), BID: Orderbook(orderType=BID)}
+            self.orderbooks[symbol][currency] = {
+                ASK: Orderbook(orderType=ASK, orderbook_depth=self.orderbook_depth),
+                BID: Orderbook(orderType=BID, orderbook_depth=self.orderbook_depth),
+            }
 
     def _generate_ws_params(self):
         ts = int(time.time() * 1000)

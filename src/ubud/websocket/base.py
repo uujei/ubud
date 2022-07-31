@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 # Orderbook
 ################################################################
 class Orderbook:
-    def __init__(self, orderType, depth=15):
+    def __init__(self, orderType, orderbook_depth=5):
         assert orderType in [ASK, BID], f"[ERROR] Wrong orderType {orderType}! - {ASK} or {BID} is available"
         self.orderType = orderType
-        self.depth = depth
+        self.orderbook_depth = orderbook_depth
 
         # [NOTE]
         # reverse = False for ASK - 매도호가는 낮을수록 선순위
@@ -36,9 +36,9 @@ class Orderbook:
         self.orderbooks = {
             k: self.orderbooks[k]
             for i, k in enumerate(sorted(self.orderbooks, reverse=self.reverse))
-            if i < self.depth + 1
+            if i < self.orderbook_depth + 1
         }
-        return [{**v, RANK: i + 1} for i, (_, v) in enumerate(self.orderbooks.items()) if i < self.depth]
+        return [{**v, RANK: i + 1} for i, (_, v) in enumerate(self.orderbooks.items()) if i < self.orderbook_depth]
 
     def update(self, order):
         # [NOTE] Trade 발생시 Quantity -1의 Order를 업데이트

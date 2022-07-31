@@ -64,9 +64,8 @@ def _concat_symbol_currency(symbol, currency):
 
 def _split_symbol(symbol):
     if "_" in symbol:
-        symbol, cur = symbol.split("_")
-        return {SYMBOL: symbol, CURRENCY: cur}
-    return {SYMBOL: symbol, CURRENCY: "unknown"}
+        return symbol.split("_")
+    return symbol, "unknown"
 
 
 ################################################################
@@ -81,6 +80,7 @@ class BithumbWebsocket(BaseWebsocket):
         channel: str,
         symbols: list,
         currencies: list = ["KRW"],
+        orderbook_depth: int = 5,
         handler: Callable = None,
         apiKey: str = None,
         apiSecret: str = None,
@@ -97,6 +97,7 @@ class BithumbWebsocket(BaseWebsocket):
         assert isinstance(currencies, (list, tuple)), "[ERROR] 'currencies' should be a list!"
         self.symbols = [_concat_symbol_currency(s, c) for s in symbols for c in currencies]
         self.ws_params = self._generate_ws_params(self.channel, self.symbols)
+        self.orderbook_depth = orderbook_depth
 
         # SELECT PARSER
         if channel == "trade":
@@ -112,13 +113,15 @@ class BithumbWebsocket(BaseWebsocket):
         # ORDERBOOKS
         self.orderbooks = {}
         for sc in self.symbols:
-            _sc = _split_symbol(sc)
-            symbol, currency = _sc[SYMBOL], _sc[CURRENCY]
+            symbol, currency = _split_symbol(sc)
             if symbol not in self.orderbooks:
                 self.orderbooks[symbol] = dict()
             if currency not in self.orderbooks[symbol]:
                 self.orderbooks[symbol][currency] = dict()
-            self.orderbooks[symbol][currency] = {ASK: Orderbook(orderType=ASK), BID: Orderbook(orderType=BID)}
+            self.orderbooks[symbol][currency] = {
+                ASK: Orderbook(orderType=ASK, orderbook_depth=self.orderbook_depth),
+                BID: Orderbook(orderType=BID, orderbook_depth=self.orderbook_depth),
+            }
 
     @staticmethod
     def _generate_ws_params(channel, symbols):
@@ -149,9 +152,7 @@ class BithumbWebsocket(BaseWebsocket):
             try:
                 content = body["content"]
                 for r in content["list"]:
-                    symbol_currency = _split_symbol(r["symbol"])
-                    symbol = symbol_currency[SYMBOL]
-                    currency = symbol_currency[CURRENCY]
+                    symbol, currency = _split_symbol(r["symbol"])
                     orderType = ASK if r["buySellGb"] == "1" else BID
 
                     price = float(r["contPrice"])
@@ -214,9 +215,7 @@ class BithumbWebsocket(BaseWebsocket):
                     if len(new_orderbooks) == 0:
                         continue
 
-                    symbol_currency = _split_symbol(new_orderbooks[0]["symbol"])
-                    symbol = symbol_currency[SYMBOL]
-                    currency = symbol_currency[CURRENCY]
+                    symbol, currency = _split_symbol(new_orderbooks[0]["symbol"])
 
                     for orderType in [ASK, BID]:
                         # Register New Orderbooks
@@ -226,12 +225,13 @@ class BithumbWebsocket(BaseWebsocket):
                                 {
                                     PRICE: float(orderbook["price"]),
                                     QUANTITY: float(orderbook["quantity"]),
+                                    DATETIME: ts_to_strdt(ts_ws_send),
+                                    TS_WS_SEND: ts_ws_send,
                                 }
                             )
                         # Append Messages
                         orderbooks = self.orderbooks[symbol][currency][orderType]()
                         for orderbook in orderbooks:
-                            logger.warn(orderbook)
                             # key
                             _key = {
                                 API_CATEGORY: THIS_API_CATEGORY,
@@ -250,7 +250,7 @@ class BithumbWebsocket(BaseWebsocket):
                                     DATETIME: ts_to_strdt(ts_ws_send),
                                     PRICE: orderbook[PRICE],
                                     QUANTITY: orderbook[QUANTITY],
-                                    TS_WS_SEND: ts_ws_send,
+                                    TS_WS_SEND: orderbook[TS_WS_SEND],
                                     TS_WS_RECV: ts_ws_recv,
                                 },
                             )
