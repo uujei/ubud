@@ -1,11 +1,11 @@
-import os
 import asyncio
 import logging
+import os
 
 import redis.asyncio as redis
 
-from ..utils.app import parse_redis_addr, split_delim
 from ..redis import RedisStreamHandler
+from ..utils.app import parse_redis_addr, split_delim
 from ..websocket import BithumbWebsocket, FtxWebsocket, UpbitWebsocket
 
 logger = logging.getLogger(__name__)
@@ -82,15 +82,25 @@ async def stream_websocket(
 
 if __name__ == "__main__":
     import sys
+
     from clutter.aws import get_secrets
 
     logging.basicConfig(level=logging.DEBUG)
 
-    _secret = get_secrets("theone")
+    _secret = get_secrets("external/ubud")
     secret = {
-        "upbit": {"apiKey": _secret["ubk"], "apiSecret": _secret["ubs"]},
-        "bithumb": {"apiKey": _secret["btk"], "apiSecret": _secret["bts"]},
-        "ftx": {"apiKey": _secret["ftk"], "apiSecret": _secret["fts"]},
+        "upbit": {
+            "apiKey": _secret["UPBIT_API_KEY"],
+            "apiSecret": _secret["UPBIT_API_SECRET"],
+        },
+        "bithumb": {
+            "apiKey": _secret["BITHUMB_API_KEY"],
+            "apiSecret": _secret["BITHUMB_API_SECRET"],
+        },
+        "ftx": {
+            "apiKey": _secret["FTX_API_KEY"],
+            "apiSecret": _secret["FTX_API_SECRET"],
+        },
     }
 
     # DEBUG EXAMPLE

@@ -7,6 +7,7 @@ from datetime import datetime
 from time import time
 from typing import Callable
 
+from ..utils.app import ts_to_strdt
 from ..const import (
     AMOUNT,
     API_CATEGORY,
@@ -16,15 +17,13 @@ from ..const import (
     CHANNEL,
     CURRENCY,
     DATETIME,
-    DT_FMT,
-    DT_FMT_FLOAT,
     KST,
     MARKET,
-    MQ_SUBTOPICS,
     ORDERBOOK,
     ORDERTYPE,
     PRICE,
     QUANTITY,
+    QUOTATION_KEY_RULE,
     RANK,
     SYMBOL,
     TICKER,
@@ -34,7 +33,6 @@ from ..const import (
     TS_MQ_SEND,
     TS_WS_RECV,
     TS_WS_SEND,
-    ts_to_strdt,
 )
 from ..models import Message
 from .base import BaseWebsocket, Orderbook
@@ -176,7 +174,7 @@ class BithumbWebsocket(BaseWebsocket):
 
                     # update message
                     msg = Message(
-                        key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                        key="/".join([str(_key[k]) for k in QUOTATION_KEY_RULE[1:]]),
                         value={
                             DATETIME: trade_datetime,
                             PRICE: price,
@@ -229,6 +227,7 @@ class BithumbWebsocket(BaseWebsocket):
                                     TS_WS_SEND: ts_ws_send,
                                 }
                             )
+
                         # Append Messages
                         orderbooks = self.orderbooks[symbol][currency][orderType]()
                         for orderbook in orderbooks:
@@ -245,7 +244,7 @@ class BithumbWebsocket(BaseWebsocket):
 
                             # add message
                             msg = Message(
-                                key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                                key="/".join([str(_key[k]) for k in QUOTATION_KEY_RULE[1:]]),
                                 value={
                                     DATETIME: ts_to_strdt(ts_ws_send),
                                     PRICE: orderbook[PRICE],

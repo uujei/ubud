@@ -21,11 +21,11 @@ from ..const import (
     DATETIME,
     KST,
     MARKET,
-    MQ_SUBTOPICS,
     ORDERBOOK,
     ORDERTYPE,
     PRICE,
     QUANTITY,
+    QUOTATION_KEY_RULE,
     RANK,
     SYMBOL,
     TICKER,
@@ -36,7 +36,6 @@ from ..const import (
     TS_WS_RECV,
     TS_WS_SEND,
     UTC,
-    ts_to_strdt,
 )
 from ..models import Message
 from .base import BaseWebsocket, Orderbook
@@ -54,8 +53,6 @@ CHANNEL_PARAMS = {
     ORDERBOOK: "orderbook",
 }
 AVAILABLE_CURRENCIES = ["AUD", "BRZ", "BTC", "EUR", "JPY", "TRYB", "USD", "USDT"]
-
-DT_FMT_FTX_SRC = "%Y-%m-%"
 
 ################################################################
 # Market Helpers
@@ -187,7 +184,7 @@ class FtxWebsocket(BaseWebsocket):
                         ORDERTYPE: orderType,
                         RANK: 0,
                     }
-                    key = "/".join([str(_key[k]) for k in MQ_SUBTOPICS])
+                    key = "/".join([str(_key[k]) for k in QUOTATION_KEY_RULE[1:]])
 
                     # avoid duplicated datetime
                     trade_dt = datetime.fromisoformat(record["time"]).astimezone(KST)
@@ -245,13 +242,24 @@ class FtxWebsocket(BaseWebsocket):
 
                 data = body["data"]
                 for _type, orderType in [("asks", ASK), ("bids", BID)]:
+                    latest_dt = ""
                     for price, quantity in data[_type]:
                         # update
                         ts = data["time"]
                         dt = datetime.fromtimestamp(ts).astimezone(KST).isoformat(timespec="microseconds")
                         self.orderbooks[symbol][currency][orderType].update(
-                            {PRICE: float(price), QUANTITY: float(quantity), DATETIME: dt, TS_WS_SEND: float(ts)}
+                            {
+                                PRICE: float(price),
+                                QUANTITY: float(quantity),
+                                DATETIME: dt,
+                                TS_WS_SEND: float(ts),
+                            }
                         )
+                        if dt > latest_dt:
+                            latest_dt = dt
+
+                    if latest_dt == "":
+                        continue
 
                     orderbooks = self.orderbooks[symbol][currency][orderType]()
                     for orderbook in orderbooks:
@@ -268,9 +276,9 @@ class FtxWebsocket(BaseWebsocket):
 
                         # add message
                         msg = Message(
-                            key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                            key="/".join([str(_key[k]) for k in QUOTATION_KEY_RULE[1:]]),
                             value={
-                                DATETIME: orderbook[DATETIME],
+                                DATETIME: latest_dt,
                                 PRICE: orderbook[PRICE],
                                 QUANTITY: orderbook[QUANTITY],
                                 TS_WS_SEND: orderbook[TS_WS_SEND],

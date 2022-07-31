@@ -1,3 +1,14 @@
+import os
+from datetime import datetime
+
+import parse
+from clutter.aws import get_secrets
+from dotenv import load_dotenv
+
+from ..const import EXCHANGE_KEY_RULE, KST, QUOTATION_KEY_PARSER, QUOTATION_KEY_RULE, UTC
+
+
+# parse redis address
 def parse_redis_addr(redis_addr, decode_responses=True):
     """
     Examples
@@ -7,6 +18,11 @@ def parse_redis_addr(redis_addr, decode_responses=True):
             "host": localhost,
             "port": 6379,
             "decode_responses": True
+        }
+    >>> parse_redis_addr("/var/run/redis/redis-server.sock")
+        {
+            "unix_socket_path": "/var/run/redis/redis-server.sock",
+            "decode_responses": True,
         }
     """
     DEFAULT_PORT = 6379
@@ -28,10 +44,18 @@ def parse_redis_addr(redis_addr, decode_responses=True):
     }
 
 
+# split delimiter
 def split_delim(*x, delim=","):
+    """
+    Examples
+    --------
+    >>> split_delim("a,b,c", "1,2,3", "x,y,z")
+        (["a", "b", "c"], ["1", "2", "3"], ["x", "y", "z"])
+    """
     return tuple([__x.strip() for __x in _x.split(delim)] for _x in x)
 
 
+# for logging
 def repr_conf(x):
     _x = {k: v for k, v in x.items() if k != "secret"}
     _secret = x.get("secret")
@@ -44,3 +68,64 @@ def repr_conf(x):
                 _s += [f"{k}({v['apiKey'][:4]}****/{v['apiSecret'][:4]}****)"]
         _x.update({"secret": ", ".join(_s)})
     return ", ".join([f"{k}: {str(v)}" for k, v in _x.items() if not k.endswith("token")])
+
+
+# load secret
+def load_secrets(secret_key):
+    if secret_key is None:
+        load_dotenv()
+        return {
+            "upbit": {
+                "apiKey": os.getenv("UPBIT_API_KEY"),
+                "apiSecret": os.getenv("UPBIT_API_SECRET"),
+            },
+            "bithumb": {
+                "apiKey": os.getenv("BITHUMB_API_KEY"),
+                "apiSecret": os.getenv("BITHUMB_API_SECRET"),
+            },
+            "ftx": {
+                "apiKey": os.getenv("FTX_API_KEY"),
+                "apiSecret": os.getenv("FTX_API_SECRET"),
+            },
+            "influxdb": {
+                "influxdb_url": os.getenv("INFLUXDB_URL"),
+                "influxdb_org": os.getenv("INFLUXDB_ORG"),
+                "influxdb_token": os.getenv("INFLUXDB_TOKEN"),
+            },
+        }
+    secrets = get_secrets(secret_key)
+    return {
+        "upbit": {
+            "apiKey": secrets["UPBIT_API_KEY"],
+            "apiSecret": secrets["UPBIT_API_SECRET"],
+        },
+        "bithumb": {
+            "apiKey": secrets["BITHUMB_API_KEY"],
+            "apiSecret": secrets["BITHUMB_API_SECRET"],
+        },
+        "ftx": {
+            "apiKey": secrets["FTX_API_KEY"],
+            "apiSecret": secrets["FTX_API_SECRET"],
+        },
+        "influxdb": {
+            "influxdb_url": secrets["INFLUXDB_URL"],
+            "influxdb_org": secrets["INFLUXDB_ORG"],
+            "influxdb_token": secrets["INFLUXDB_TOKEN"],
+        },
+    }
+
+
+# timestamp to string datetime (w/ ISO format)
+def ts_to_strdt(ts, _float=True):
+    # _flaot is deprecated
+    return datetime.fromtimestamp(ts).astimezone(KST).isoformat(timespec="microseconds")
+
+
+# quotation key to meta
+def quotation_key_to_meta(key, parser=QUOTATION_KEY_PARSER):
+    return parser.parse(key).named
+
+
+# quotation meta to key
+def quotation_meta_to_key(meta, rule=QUOTATION_KEY_RULE):
+    return "/".join([meta[k] for k in rule])

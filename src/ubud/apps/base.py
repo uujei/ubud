@@ -68,6 +68,9 @@ class App:
         self._redis_streams_set = f"{self.redis_topic}/keys"
         self._offsets = dict()
 
+        # stream meta management
+        self._meta = dict()
+
         # whoami
         self._me = self.__class__.__name__
 

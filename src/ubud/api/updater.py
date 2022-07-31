@@ -42,7 +42,11 @@ class Updater(abc.ABC):
                         records = await self.request(**self.REQUEST_ARGS)
                         logger.debug(f"[UPDATER] API Response: {records}")
                     except aiohttp.client_exceptions.ClientConnectorError:
-                        logger.warning("[UPDATER] API Request Failed - Temporary failure in name resolution")
+                        logger.warning(
+                            "[UPDATER] API Request Failed, ({}) - Temporary failure in name resolution".format(
+                                self.__class__.__name__
+                            )
+                        )
                         raise
                     except Exception as ex:
                         logger.warning(f"[UPDATER] API Request Failed - {ex}")

@@ -8,10 +8,9 @@ from click_loglevel import LogLevel
 from clutter.aws import get_secrets
 from dotenv import load_dotenv
 
-import redis
-
-from .stream import connect_influxdb, stream_balance_api, stream_common_apps, stream_forex_api, stream_websocket
-from .utils.app import parse_redis_addr, repr_conf
+from .apps.influxdb_sink import InfluxDBConnector
+from .stream import stream_balance_api, stream_common_apps, stream_forex_api, stream_websocket
+from .utils.app import load_secrets, parse_redis_addr, repr_conf
 
 logger = logging.getLogger(__name__)
 logger.propagate = False
@@ -22,7 +21,7 @@ DEFAULT_LOG_FORMAT = "%(asctime)s:%(name)s:%(levelname)s:%(message)s"
 
 DEFAULT_MARKET = "upbit,bithumb,ftx"
 DEFAULT_CHANNELS = "trade,orderbook"
-DEFAULT_SYMBOLS = "BTC,WAVES,KNC,AXS"
+DEFAULT_SYMBOLS = "BTC,ETH,XRP,WAVES,KNC,AXS,DOT,USDT,SOL,MATIC,TRX"
 DEFAULT_CURRENCIES = "KRW,USD,-PERP"
 AVAILABLE_CURRENCIES = {
     "upbit": "KRW",
@@ -40,50 +39,6 @@ def _clean_namespace(redis_client, topic):
     _keys = redis_client.keys(f"{topic}/*")
     _stream_keys = redis_client.keys(f"{topic}-stream/*")
     _ = [redis_client.delete(k) for k in [*_keys, *_stream_keys]]
-
-
-def load_secret(secret_key):
-    if secret_key is None:
-        load_dotenv()
-        return {
-            "upbit": {
-                "apiKey": os.getenv("UPBIT_API_KEY"),
-                "apiSecret": os.getenv("UPBIT_API_SECRET"),
-            },
-            "bithumb": {
-                "apiKey": os.getenv("BITHUMB_API_KEY"),
-                "apiSecret": os.getenv("BITHUMB_API_SECRET"),
-            },
-            "ftx": {
-                "apiKey": os.getenv("FTX_API_KEY"),
-                "apiSecret": os.getenv("FTX_API_SECRET"),
-            },
-            "influxdb": {
-                "influxdb_url": os.getenv("INFLUXDB_URL"),
-                "influxdb_org": os.getenv("INFLUXDB_ORG"),
-                "influxdb_token": os.getenv("INFLUXDB_TOKEN"),
-            },
-        }
-    secrets = get_secrets(secret_key)
-    return {
-        "upbit": {
-            "apiKey": secrets["UPBIT_API_KEY"],
-            "apiSecret": secrets["UPBIT_API_SECRET"],
-        },
-        "bithumb": {
-            "apiKey": secrets["BITHUMB_API_KEY"],
-            "apiSecret": secrets["BITHUMB_API_SECRET"],
-        },
-        "ftx": {
-            "apiKey": secrets["FTX_API_KEY"],
-            "apiSecret": secrets["FTX_API_SECRET"],
-        },
-        "influxdb": {
-            "influxdb_url": secrets["INFLUXDB_URL"],
-            "influxdb_org": secrets["INFLUXDB_ORG"],
-            "influxdb_token": secrets["INFLUXDB_TOKEN"],
-        },
-    }
 
 
 def filter_available_currencies(market, currencies):
@@ -125,7 +80,7 @@ def start_websocket_stream(
     )
 
     # secret
-    secret = load_secret(secret_key)
+    secret = load_secrets(secret_key)
 
     # correct input
     market = [x.strip() for x in market.split(",")]
@@ -180,7 +135,7 @@ def start_balance_stream(market, symbols, interval, redis_topic, redis_addr, red
     )
 
     # secret
-    secret = load_secret(secret_key)
+    secret = load_secrets(secret_key)
 
     # correct input
     market = [x.strip() for x in market.split(",")]
@@ -306,6 +261,7 @@ def start_stream(
     log_level,
 ):
     import ray
+    import redis
 
     # set log level
     logging.basicConfig(
@@ -314,7 +270,7 @@ def start_stream(
     )
 
     # secret
-    secret = load_secret(secret_key)
+    secret = load_secrets(secret_key)
 
     # correct input
     market = [x.strip() for x in market.split(",")]
@@ -425,8 +381,7 @@ def start_stream(
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
 @click.option("--influxdb-url", default=None, type=str)
-@click.option("--influxdb-write-interval", default=0.1, type=float)
-@click.option("--influxdb-flush-sec", default=0.1, type=float)
+@click.option("--influxdb-flush-sec", default=0.5, type=float)
 @click.option("--influxdb-flush-size", default=3000, type=float)
 @click.option("--secret-key", default="theone", type=str)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
@@ -434,12 +389,12 @@ def start_influxdb_sink(
     redis_addr,
     redis_topic,
     influxdb_url,
-    influxdb_write_interval,
     influxdb_flush_sec,
     influxdb_flush_size,
     secret_key,
     log_level,
 ):
+    import redis.asyncio as redis
 
     # set log level
     logging.basicConfig(
@@ -448,7 +403,11 @@ def start_influxdb_sink(
     )
 
     # secret
-    secret = load_secret(secret_key)
+    secret = load_secrets(secret_key)
+
+    # redis_client
+    redis_conf = parse_redis_addr(redis_addr)
+    redis_client = redis.Redis(**redis_conf)
 
     # influxdb
     influxdb_conf = secret["influxdb"]
@@ -457,18 +416,19 @@ def start_influxdb_sink(
 
     # TASKS #
     conf = {
-        "redis_addr": redis_addr,
+        "redis_client": redis_client,
         "redis_topic": redis_topic,
-        "redis_xread_count": None,
-        "redis_smember_interval": 1.0,
+        "redis_xread_block": 100,
+        "redis_stream_update_interval": 5,
         **influxdb_conf,
-        "influxdb_write_interval": influxdb_write_interval,
         "influxdb_flush_sec": influxdb_flush_sec,
         "influxdb_flush_size": influxdb_flush_size,
     }
     logger.info(f"[UBUD] Start InfluxDB Sink Stream - {repr_conf(conf)}")
 
+    influxdb_connector = InfluxDBConnector(**conf)
+
     # START TASKS
     loop = uvloop.new_event_loop()
     asyncio.set_event_loop(loop)
-    asyncio.run(connect_influxdb(**conf))
+    asyncio.run(influxdb_connector.run())

@@ -18,11 +18,11 @@ from ..const import (
     DATETIME,
     KST,
     MARKET,
-    MQ_SUBTOPICS,
     ORDERBOOK,
     ORDERTYPE,
     PRICE,
     QUANTITY,
+    QUOTATION_KEY_RULE,
     RANK,
     SYMBOL,
     TICKER,
@@ -32,9 +32,9 @@ from ..const import (
     TS_MARKET,
     TS_WS_RECV,
     TS_WS_SEND,
-    ts_to_strdt,
 )
 from ..models import Message
+from ..utils.app import ts_to_strdt
 from .base import BaseWebsocket
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,7 @@ class UpbitWebsocket(BaseWebsocket):
         channel: str,
         symbols: list,
         currencies: list = ["KRW"],
+        orderbook_depth: int = 5,
         handler: Callable = None,
         apiKey: str = None,
         apiSecret: str = None,
@@ -95,6 +96,7 @@ class UpbitWebsocket(BaseWebsocket):
         assert isinstance(currencies, (list, tuple)), "[ERROR] 'currencies' should be a list!"
         self.symbols = [_concat_symbol_currency(s, c) for s in symbols for c in currencies]
         self.ws_params = self._generate_ws_params(self.channel, self.symbols)
+        self.orderbook_depth = orderbook_depth
 
         # SELECT PARSER
         if channel == "trade":
@@ -132,7 +134,7 @@ class UpbitWebsocket(BaseWebsocket):
 
         # load body
         try:
-            symbol_currency = _split_symbol(body["cd"])
+            symbol, currency = _split_symbol(body["cd"])
             dt = datetime.fromtimestamp(float(body["sid"]) / 1e6).astimezone(KST).isoformat(timespec="microseconds")
             ts_ws_send = float(body["tms"]) / 1e3
 
@@ -141,7 +143,8 @@ class UpbitWebsocket(BaseWebsocket):
                 API_CATEGORY: THIS_API_CATEGORY,
                 CHANNEL: TRADE,
                 MARKET: THIS_MARKET,
-                **symbol_currency,
+                SYMBOL: symbol,
+                CURRENCY: currency,
                 ORDERTYPE: body["ab"].lower(),
                 RANK: 0,
             }
@@ -149,7 +152,7 @@ class UpbitWebsocket(BaseWebsocket):
             # add message
             # [NOTE] DATETIME으로 ttms 대신 trade sid 사용 (체결 순서를 microseconds로)
             msg = Message(
-                key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                key="/".join([str(_key[k]) for k in QUOTATION_KEY_RULE[1:]]),
                 value={
                     DATETIME: dt,
                     TRADE_SID: body["sid"],
@@ -165,7 +168,7 @@ class UpbitWebsocket(BaseWebsocket):
             logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
 
         except Exception as ex:
-            logger.warn(f"[WEBSOCKET] Upbit Unknown Message: {body}")
+            logger.warning(f"[WEBSOCKET] Upbit Unknown Message: {body}")
 
         return [msg]
 
@@ -176,12 +179,14 @@ class UpbitWebsocket(BaseWebsocket):
             # parse
             if "obu" in body.keys():
                 # base message
-                symbol_currency = _split_symbol(body["cd"])
+                symbol, currency = _split_symbol(body["cd"])
                 ts_ws_send = float(body["tms"]) / 1e3
 
                 # parse and pub
                 n = len(body["obu"])
                 for i, r in enumerate(body["obu"]):
+                    if i + 1 > self.orderbook_depth:
+                        break
                     # ASK
                     for _p, _q, _ordertype in [("ap", "as", ASK), ("bp", "bs", BID)]:
                         # key
@@ -189,14 +194,15 @@ class UpbitWebsocket(BaseWebsocket):
                             API_CATEGORY: THIS_API_CATEGORY,
                             CHANNEL: ORDERBOOK,
                             MARKET: THIS_MARKET,
-                            **symbol_currency,
+                            SYMBOL: symbol,
+                            CURRENCY: currency,
                             ORDERTYPE: _ordertype,
                             RANK: i + 1,
                         }
 
                         # add message
                         msg = Message(
-                            key="/".join([str(_key[k]) for k in MQ_SUBTOPICS]),
+                            key="/".join([str(_key[k]) for k in QUOTATION_KEY_RULE[1:]]),
                             value={
                                 DATETIME: ts_to_strdt(ts_ws_send),
                                 PRICE: float(r[_p]),
@@ -212,7 +218,7 @@ class UpbitWebsocket(BaseWebsocket):
             else:
                 logger.warning(f"[WEBSOCKET] Upbit Unknown Message: {body}")
         except Exception as ex:
-            logger.warn(f"[WEBSOCKET] Upbit Parse Error - {ex}")
+            logger.warning(f"[WEBSOCKET] Upbit Parse Error - {ex}")
         return messages
 
 

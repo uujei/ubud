@@ -3,12 +3,13 @@ import asyncio
 import json
 import logging
 import socket
+from datetime import datetime
 from time import time
 from typing import Callable
 
 import websockets
 
-from ..const import ASK, BID, PRICE, QUANTITY, RANK, ts_to_strdt
+from ..const import ASK, BID, KST, PRICE, QUANTITY, RANK
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,8 @@ class Orderbook:
             for i, k in enumerate(sorted(self.orderbooks, reverse=self.reverse))
             if i < self.orderbook_depth + 1
         }
+        if len(self.orderbooks) < self.orderbook_depth:
+            return []
         return [{**v, RANK: i + 1} for i, (_, v) in enumerate(self.orderbooks.items()) if i < self.orderbook_depth]
 
     def update(self, order):
@@ -106,22 +109,26 @@ class BaseWebsocket(abc.ABC):
             return
         msg = json.loads(recv)
         ts_ws_recv = time()
-        logger.debug(f"[WEBSOCKET] Receive Message @ {ts_to_strdt(ts_ws_recv, _float=True)}")
-        logger.debug(f"[WEBSOCKET] Body: {msg}")
+        logger.debug(
+            "[WEBSOCKET] Receive Message @ {}".format(
+                datetime.fromtimestamp(ts_ws_recv).astimezone(KST).isoformat(timespec="microseconds")
+            )
+        )
+        logger.debug("[WEBSOCKET] Body: {}".format(msg))
 
         # parser
         if parser is not None:
             try:
                 msg = await parser(body=msg, ts_ws_recv=ts_ws_recv)
             except Exception as ex:
-                logger.warn(f"[WEBSOCKET] Error Parsing {ts_ws_recv}: {ex}")
+                logger.warn("[WEBSOCKET] Error Parsing {0}: {1}".format(ts_ws_recv, ex))
 
         # handler
         if handler is not None:
             try:
                 await handler(msg)
             except Exception as ex:
-                logger.warn(f"[WEBSOCKET] Error Execute Handler: {ex}")
+                logger.warn("[WEBSOCKET] Error Execute Handler: {}".format(ex))
 
     @abc.abstractstaticmethod
     async def _request(ws, params):

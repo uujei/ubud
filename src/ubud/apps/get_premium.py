@@ -11,55 +11,7 @@ from .base import App
 logger = logging.getLogger(__name__)
 
 ################################################################
-# USD to KRW
-################################################################
-class Usd2KrwApp(App):
-    # settings
-    FOREX_PRICE = ["basePrice", "cashBuyingPrice", "cashSellingPrice"]
-
-    # forex store
-    forex = dict()
-
-    # logic
-    async def on_stream(self, stream=None, offset=None, record=None):
-        if "FRX.KRWUSD" in stream:
-            self.forex.update(record)
-            return
-
-        usd = float(record["price"])
-        for forex_price in self.FOREX_PRICE:
-            if krw_per_usd := self.forex.get(forex_price):
-                try:
-                    krw = get_order_unit(usd * float(krw_per_usd))
-                    _stream = stream.split("/", 1)[-1].replace("/USD/", f"/KRW.usd.{forex_price}/")
-                    msg = Message(
-                        key=_stream,
-                        value={
-                            DATETIME: record[DATETIME],
-                            "price": krw,
-                        },
-                    )
-
-                    # logging
-                    logger.debug(
-                        "[APP {app}] From {src_stream}, {price}, {usd} -> To {dst_stream}, {price}, {krw}".format(
-                            app=self._me, src_stream=stream, dst_stream=_stream, price="price", usd=usd, krw=krw
-                        )
-                    )
-                except Exception as ex:
-                    logger.warning("[APP {app}] Transform Failed {ex}".format(app=self._me, ex=ex))
-
-                try:
-                    # xadd using handler
-                    if self.redis_stream_handler is not None:
-                        await self.redis_stream_handler.xadd(msg)
-                    logger.info("[APP {app}] XADD {msg}".format(app=self._me, msg=msg))
-                except Exception as ex:
-                    logger.warning("[APP {app}] XADD Failed {ex}".format(app=self._me, ex=ex))
-
-
-################################################################
-# USD to KRW
+# Get Premium
 ################################################################
 class GetPremiumApp(App):
     """
@@ -67,7 +19,7 @@ class GetPremiumApp(App):
     --------
     >>> app = GetPremiumApp(
             redis_client=redis_client,
-            redis_streams=["*/KRW*/*/[1]"],
+            redis_streams=["*/KRW*/*/[0]"],
             redis_stream_handler=handler,
         )
     >>> asyncio.run(app.run())
@@ -107,11 +59,19 @@ class GetPremiumApp(App):
 
         # forex
         forex_base = parsed_stream[CURRENCY].split(".")[-1]
-        if forex_base not in ["KRW", "basePrice"]:
+        if forex_base not in ["KRW", "usd"]:
             return
 
         # message holder
         messages = []
+
+        compet_streams = parsed_stream.copy()
+        compet_streams.update(
+            {
+                ORDERTYPE: "*",
+                CURRENCY: parsed_stream[CURRENCY].split(".")[0] + "*",
+            }
+        )
 
         # when ask comes
         if parsed_stream[ORDERTYPE] == "ask":
@@ -193,7 +153,6 @@ class GetPremiumApp(App):
 
 if __name__ == "__main__":
     import asyncio
-    import sys
     import redis.asyncio as redis
     from ..redis.handler import RedisStreamHandler
 
@@ -204,25 +163,11 @@ if __name__ == "__main__":
     redis_client = redis.Redis(unix_socket_path=REDIS_SOCK, decode_responses=True)
     handler = RedisStreamHandler(redis_client=redis_client)
 
-    if len(sys.argv) > 1:
-        test_app = sys.argv[1].lower()
-    else:
-        test_app = "usd2krwapp"
-
-    if test_app == "usd2krwapp":
-        app = Usd2KrwApp(
-            redis_client=redis_client,
-            redis_streams=["*/forex/*", "*/USD/*/[0-1]"],
-            redis_stream_handler=handler,
-            debug_sec=3,
-        )
-
-    if test_app == "getpremiumapp":
-        app = GetPremiumApp(
-            redis_client=redis_client,
-            redis_streams=["*/KRW*/*/[1]"],
-            redis_stream_handler=handler,
-            debug_sec=3,
-        )
+    app = GetPremiumApp(
+        redis_client=redis_client,
+        redis_streams=["*/KRW*/*/[1]"],
+        redis_stream_handler=handler,
+        debug_sec=3,
+    )
 
     asyncio.run(app.run())

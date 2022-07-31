@@ -4,7 +4,7 @@ import os
 
 import redis.asyncio as redis
 
-from ..apps.common import Usd2KrwApp, GetPremiumApp
+from ..apps.usd_to_krw import Usd2KrwApp
 from ..redis import RedisStreamHandler
 from ..redis.handler import RedisStreamHandler
 from ..utils.app import parse_redis_addr, split_delim
@@ -39,12 +39,12 @@ async def stream_common_apps(
     )
     coros += [forex_app.run()]
 
-    # 프리미엄 계산 앱
-    premium_app = GetPremiumApp(
-        redis_client=redis_client,
-        redis_streams=["*/KRW*/*/[1]"],
-        redis_stream_handler=handler,
-    )
-    coros += [premium_app.run()]
+    # # 프리미엄 계산 앱
+    # premium_app = GetPremiumApp(
+    #     redis_client=redis_client,
+    #     redis_streams=["*/KRW*/*/[1]"],
+    #     redis_stream_handler=handler,
+    # )
+    # coros += [premium_app.run()]
 
     await asyncio.gather(*coros)
