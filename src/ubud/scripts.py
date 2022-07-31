@@ -80,8 +80,8 @@ def load_secret(secret_key):
         },
         "influxdb": {
             "influxdb_url": secrets["INFLUXDB_URL"],
-            "influxdb_org": secrets["INFLUXDB_TOKEN"],
-            "influxdb_token": secrets["INFLUXDB_ORG"],
+            "influxdb_org": secrets["INFLUXDB_ORG"],
+            "influxdb_token": secrets["INFLUXDB_TOKEN"],
         },
     }
 

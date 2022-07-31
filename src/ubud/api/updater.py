@@ -6,6 +6,7 @@ import traceback
 from datetime import datetime
 from typing import Callable
 
+import aiohttp
 import redis.asyncio as redis
 
 from ..const import DATETIME, KST
@@ -40,6 +41,9 @@ class Updater(abc.ABC):
                     try:
                         records = await self.request(**self.REQUEST_ARGS)
                         logger.debug(f"[UPDATER] API Response: {records}")
+                    except aiohttp.client_exceptions.ClientConnectorError:
+                        logger.warning("[UPDATER] API Request Failed - Temporary failure in name resolution")
+                        raise
                     except Exception as ex:
                         logger.warning(f"[UPDATER] API Request Failed - {ex}")
                         traceback.print_exc()
@@ -124,7 +128,7 @@ class ForexUpdater(Updater, ForexApi):
 # Exchange Updater
 ################################################################
 # Abstract BalanceUpdater
-class ExchangeUpdater(Updater):
+class BalanceUpdate(Updater):
     def __init__(
         self,
         apiKey: str,
@@ -144,7 +148,7 @@ class ExchangeUpdater(Updater):
 
 
 # Upbit
-class UpbitBalanceUpdater(ExchangeUpdater, UpbitApi):
+class UpbitBalanceUpdater(BalanceUpdate, UpbitApi):
     MARKET = "upbit"
     REQUEST_ARGS = {
         "path": "/accounts",
@@ -175,7 +179,7 @@ class UpbitBalanceUpdater(ExchangeUpdater, UpbitApi):
 
 
 # Bithumb
-class BithumbBalanceUpdater(ExchangeUpdater, BithumbApi):
+class BithumbBalanceUpdater(BalanceUpdate, BithumbApi):
     MARKET = "bithumb"
     REQUEST_ARGS = {
         "path": "/info/balance",
@@ -213,7 +217,7 @@ class BithumbBalanceUpdater(ExchangeUpdater, BithumbApi):
 
 
 # FTX Balance
-class FtxBalanceUpdater(ExchangeUpdater, FtxApi):
+class FtxBalanceUpdater(BalanceUpdate, FtxApi):
     MARKET = "ftx"
     REQUEST_ARGS = {
         "path": "/wallet/balances",
@@ -239,7 +243,7 @@ class FtxBalanceUpdater(ExchangeUpdater, FtxApi):
 
 
 # FTX Position
-class FtxPositionUpdater(ExchangeUpdater, FtxApi):
+class FtxPositionUpdater(BalanceUpdate, FtxApi):
     MARKET = "ftx"
     REQUEST_ARGS = {
         "path": "/wallet/balances",
@@ -274,7 +278,7 @@ if __name__ == "__main__":
 
     from ..redis.handler import RedisSetHandler, RedisStreamHandler
 
-    secrets = get_secrets("theone")
+    secrets = get_secrets("external/ubud")
     logging.basicConfig(level=logging.DEBUG)
 
     redis_client = redis.Redis(decode_responses=True)
@@ -287,9 +291,18 @@ if __name__ == "__main__":
     }
 
     API_KEY = {
-        "upbit": {"apiKey": "ubk", "apiSecret": "ubs"},
-        "bithumb": {"apiKey": "btk", "apiSecret": "bts"},
-        "ftx": {"apiKey": "ftk", "apiSecret": "fts"},
+        "upbit": {
+            "apiKey": "UPBIT_API_KEY",
+            "apiSecret": "UPBIT_API_SECRET",
+        },
+        "bithumb": {
+            "apiKey": "BITHUMB_API_KEY",
+            "apiSecret": "BITHUMB_API_SECRET",
+        },
+        "ftx": {
+            "apiKey": "FTX_API_KEY",
+            "apiSecret": "FTX_API_SECRET",
+        },
     }
 
     async def tasks():
