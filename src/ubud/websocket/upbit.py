@@ -65,8 +65,8 @@ def _split_symbol(symbol):
     DELIM = "-"
     if DELIM in symbol:
         cur, symbol = symbol.split(DELIM)
-        return {SYMBOL: symbol, CURRENCY: cur}
-    return {SYMBOL: symbol, CURRENCY: "unknown"}
+        return symbol, cur
+    return symbol, "unknown"
 
 
 ################################################################

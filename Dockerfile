@@ -7,7 +7,7 @@ RUN python -m pip install --upgrade pip
 
 WORKDIR ${WORKDIR}
 COPY . ${WORKDIR}
-RUN rm .env
+RUN rm -f .env
 
 RUN python -m pip install . 
 

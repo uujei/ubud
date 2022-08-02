@@ -49,7 +49,7 @@ PARSER = {
     },
     "forex": {
         "parser": FOREX_KEY_PARSER,
-        "tags": ["channel", "codes"],
+        "tags": ["codes"],
         "fields": ["basePrice", "highPrice", "lowPrice", "cashBuyingPrice", "cashSellingPrice"],
     },
     "premium": {
