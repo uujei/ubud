@@ -12,7 +12,7 @@ import websockets
 
 from ..const import (
     AMOUNT,
-    API_CATEGORY,
+    CATEGORY,
     ASK,
     BID,
     BOOK_COUNT,
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # Market Conf
 ################################################################
 THIS_MARKET = "ftx"
-THIS_API_CATEGORY = "quotation"
+THIS_CATEGORY = "quotation"
 CHANNEL_PARAMS = {
     TICKER: "ticker",
     TRADE: "trades",
@@ -176,7 +176,7 @@ class FtxWebsocket(BaseWebsocket):
 
                     # key
                     _key = {
-                        API_CATEGORY: THIS_API_CATEGORY,
+                        CATEGORY: THIS_CATEGORY,
                         CHANNEL: TRADE,
                         MARKET: THIS_MARKET,
                         SYMBOL: symbol,
@@ -265,7 +265,7 @@ class FtxWebsocket(BaseWebsocket):
                     for orderbook in orderbooks:
                         # key
                         _key = {
-                            API_CATEGORY: THIS_API_CATEGORY,
+                            CATEGORY: THIS_CATEGORY,
                             CHANNEL: ORDERBOOK,
                             MARKET: THIS_MARKET,
                             SYMBOL: symbol,

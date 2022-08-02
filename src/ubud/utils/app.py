@@ -5,7 +5,7 @@ import parse
 from clutter.aws import get_secrets
 from dotenv import load_dotenv
 
-from ..const import EXCHANGE_KEY_RULE, KST, QUOTATION_KEY_PARSER, QUOTATION_KEY_RULE, UTC
+from ..const import KST, KEY_PARSER
 
 
 # parse redis address
@@ -121,11 +121,6 @@ def ts_to_strdt(ts, _float=True):
     return datetime.fromtimestamp(ts).astimezone(KST).isoformat(timespec="microseconds")
 
 
-# quotation key to meta
-def quotation_key_to_meta(key, parser=QUOTATION_KEY_PARSER):
-    return parser.parse(key).named
-
-
-# quotation meta to key
-def quotation_meta_to_key(meta, rule=QUOTATION_KEY_RULE):
-    return "/".join([meta[k] for k in rule])
+# universal parser
+def key_parser(key):
+    return KEY_PARSER[key.split("/", 2)[1]](key).named

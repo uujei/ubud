@@ -8,7 +8,7 @@ from typing import Callable
 
 from ..const import (
     AMOUNT,
-    API_CATEGORY,
+    CATEGORY,
     ASK,
     BID,
     BOOK_COUNT,
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # Market Conf
 ################################################################
 THIS_MARKET = "upbit"
-THIS_API_CATEGORY = "quotation"
+THIS_CATEGORY = "quotation"
 CHANNEL_PARAMS = {
     TICKER: "ticker",
     TRADE: "trade",
@@ -140,7 +140,7 @@ class UpbitWebsocket(BaseWebsocket):
 
             # key
             _key = {
-                API_CATEGORY: THIS_API_CATEGORY,
+                CATEGORY: THIS_CATEGORY,
                 CHANNEL: TRADE,
                 MARKET: THIS_MARKET,
                 SYMBOL: symbol,
@@ -191,7 +191,7 @@ class UpbitWebsocket(BaseWebsocket):
                     for _p, _q, _ordertype in [("ap", "as", ASK), ("bp", "bs", BID)]:
                         # key
                         _key = {
-                            API_CATEGORY: THIS_API_CATEGORY,
+                            CATEGORY: THIS_CATEGORY,
                             CHANNEL: ORDERBOOK,
                             MARKET: THIS_MARKET,
                             SYMBOL: symbol,

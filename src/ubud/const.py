@@ -39,7 +39,7 @@ TOPIC = "topic"
 TICKER = "ticker"
 TRADE = "trade"
 ORDERBOOK = "orderbook"
-API_CATEGORY = "api_category"
+CATEGORY = "category"
 DATETIME = "datetime"
 MARKET = "market"
 CHANNEL = "channel"
@@ -73,14 +73,21 @@ TS_MQ_SEND = "_ts_mq_send"
 TS_MQ_RECV = "_ts_mq_recv"
 
 # KEY RULE & PARSER
-QUOTATION_KEY_RULE = [TOPIC, API_CATEGORY, CHANNEL, MARKET, SYMBOL, CURRENCY, ORDERTYPE, RANK]
+QUOTATION_KEY_RULE = [TOPIC, CATEGORY, CHANNEL, MARKET, SYMBOL, CURRENCY, ORDERTYPE, RANK]
 QUOTATION_KEY_PARSER = parse.compile("/".join(["{{{}}}".format(x) for x in QUOTATION_KEY_RULE]))
 
-PREMIUM_KEY_RULE = [TOPIC, API_CATEGORY, CHANNEL, MARKET, SYMBOL, CURRENCY, ORDERTYPE, RANK]
+PREMIUM_KEY_RULE = [TOPIC, CATEGORY, MARKET, SYMBOL, CURRENCY]
 PREMIUM_KEY_PARSER = parse.compile("/".join(["{{{}}}".format(x) for x in PREMIUM_KEY_RULE]))
 
-EXCHANGE_KEY_RULE = [TOPIC, API_CATEGORY, CHANNEL, MARKET, SYMBOL]
-EXCHANGE_KEY_PARSER = parse.compile("/".join(["{{{}}}".format(x) for x in EXCHANGE_KEY_RULE]))
+BALANCE_KEY_RULE = [TOPIC, CATEGORY, MARKET, SYMBOL]
+BALANCE_KEY_PARSER = parse.compile("/".join(["{{{}}}".format(x) for x in BALANCE_KEY_RULE]))
 
-FOREX_KEY_RULE = [TOPIC, API_CATEGORY, CHANNEL, CODES]
+FOREX_KEY_RULE = [TOPIC, CATEGORY, CODES]
 FOREX_KEY_PARSER = parse.compile("/".join(["{{{}}}".format(x) for x in FOREX_KEY_RULE]))
+
+KEY_PARSER = {
+    "quotation": QUOTATION_KEY_PARSER.parse,
+    "balance": BALANCE_KEY_PARSER.parse,
+    "forex": FOREX_KEY_PARSER.parse,
+    "premium": PREMIUM_KEY_PARSER.parse,
+}

@@ -3,9 +3,10 @@ from fnmatch import fnmatch
 
 import parse
 
-from ..const import DATETIME, QUOTATION_KEY_RULE, MARKET, ORDERTYPE, CURRENCY, RANK
+from ..const import DATETIME, QUOTATION_KEY_RULE, MARKET, ORDERTYPE, CURRENCY, RANK, SYMBOL
 from ..models import Message
 from ..utils.business import get_order_unit
+from ..utils.app import key_parser
 from .base import App
 
 logger = logging.getLogger(__name__)
@@ -19,59 +20,46 @@ class GetPremiumApp(App):
     --------
     >>> app = GetPremiumApp(
             redis_client=redis_client,
-            redis_streams=["*/KRW*/*/[0]"],
+            redis_streams=["*/trade/*/KRW*/*"],
             redis_stream_handler=handler,
         )
     >>> asyncio.run(app.run())
     """
 
-    # api_category
-    api_category = "premium"
+    # category
+    category = "premium"
 
     # store store
     store = dict()
-
-    # parser
-    rule = "/".join(["{topic}", *[f"{{{x}}}" for x in QUOTATION_KEY_RULE]])
-    parser = parse.compile(rule)
-
-    def select_counters(self, parsed_stream):
-        _stream = parsed_stream.copy()
-        counter_orderType = "bid" if _stream[ORDERTYPE] == "ask" else "ask"
-        _stream.update(
-            {
-                ORDERTYPE: counter_orderType,
-                CURRENCY: _stream[CURRENCY].split(".")[0] + "*",
-            }
-        )
-        anti_pattern = self.rule.format(**_stream)
-        _stream.update({MARKET: "*"})
-        pattern = self.rule.format(**_stream)
-        return {k: v for k, v in self.store.items() if fnmatch(k, pattern) and not fnmatch(k, anti_pattern)}
+    markets = set()
 
     # logic
     async def on_stream(self, stream=None, offset=None, record=None):
+        """
+        [NOTE] 불필요하게 많은 계산 줄이기 위해 입력된 market을 분모로 사용
+         - Bithumb 레코드 들어오면 Upbit/Bithumb, FTX/Bithumb, ... 프리미엄 계산
+         - Upbit 들어오면 Bithumb/Upbit, FTX/Upbit, ... 프리미엄 계산
+        """
+        # parse key
+        parsed = key_parser(stream)
+
+        if parsed[MARKET] not in self.markets:
+            self.markets.union(parsed[MARKET])
+
+        key = "/".join([parsed[MARKET], parsed[SYMBOL]])
+        self.store.update({key: record})
+
         # update store
         self.store.update({stream: record})
 
         # parse stream
-        parsed_stream = self.parser.parse(stream).named
-
-        # forex
-        forex_base = parsed_stream[CURRENCY].split(".")[-1]
-        if forex_base not in ["KRW", "usd"]:
-            return
+        parsed = key_parser(stream)
 
         # message holder
         messages = []
 
-        compet_streams = parsed_stream.copy()
-        compet_streams.update(
-            {
-                ORDERTYPE: "*",
-                CURRENCY: parsed_stream[CURRENCY].split(".")[0] + "*",
-            }
-        )
+        #
+        self.store()
 
         # when ask comes
         if parsed_stream[ORDERTYPE] == "ask":
@@ -83,7 +71,7 @@ class GetPremiumApp(App):
                     msg = Message(
                         key="/".join(
                             [
-                                self.api_category,
+                                self.category,
                                 parsed_stream["channel"],
                                 "-".join([parsed_bid_key[MARKET], parsed_stream[MARKET]]),
                                 parsed_stream["symbol"],
@@ -121,7 +109,7 @@ class GetPremiumApp(App):
                     msg = Message(
                         key="/".join(
                             [
-                                self.api_category,
+                                self.category,
                                 parsed_stream["channel"],
                                 "-".join([parsed_stream[MARKET], parsed_ask_key[MARKET]]),
                                 parsed_stream["symbol"],

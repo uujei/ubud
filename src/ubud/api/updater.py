@@ -41,13 +41,10 @@ class Updater(abc.ABC):
                     try:
                         records = await self.request(**self.REQUEST_ARGS)
                         logger.debug(f"[UPDATER] API Response: {records}")
-                    except aiohttp.client_exceptions.ClientConnectorError:
-                        logger.warning(
-                            "[UPDATER] API Request Failed, ({}) - Temporary failure in name resolution".format(
-                                self.__class__.__name__
-                            )
-                        )
-                        raise
+                    except aiohttp.client_exceptions.ClientConnectorError as ex:
+                        raise ex
+                    except aiohttp.client_exceptions.ClientOSError as ex:
+                        raise ex
                     except Exception as ex:
                         logger.warning(f"[UPDATER] API Request Failed - {ex}")
                         traceback.print_exc()
@@ -93,6 +90,8 @@ class Updater(abc.ABC):
 ################################################################
 # Only ForexUpdater
 class ForexUpdater(Updater, ForexApi):
+
+    category = "forex"
     REQUEST_ARGS = {}
 
     def __init__(
@@ -114,7 +113,7 @@ class ForexUpdater(Updater, ForexApi):
         messages = []
         for r in records:
             msg = Message(
-                key="/".join([self.route, self.codes]),
+                key="/".join([self.category, self.codes]),
                 value={
                     DATETIME: datetime.fromtimestamp(r["timestamp"] / 1e3)
                     .astimezone(KST)
@@ -133,6 +132,9 @@ class ForexUpdater(Updater, ForexApi):
 ################################################################
 # Abstract BalanceUpdater
 class BalanceUpdate(Updater):
+
+    category = "balance"
+
     def __init__(
         self,
         apiKey: str,
@@ -167,7 +169,7 @@ class UpbitBalanceUpdater(BalanceUpdate, UpbitApi):
             free = float(r["balance"])
             locked = float(r["locked"])
             msg = Message(
-                key=f"exchange/balance/{self.MARKET}/{symbol}",
+                key="/".join([self.category, self.MARKET, symbol]),
                 value={
                     DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds")),
                     "total": free + locked,
@@ -210,7 +212,7 @@ class BithumbBalanceUpdater(BalanceUpdate, BithumbApi):
             value = {DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds"))}
             value.update(_value)
             msg = Message(
-                key=f"exchange/balance/{self.MARKET}/{symbol.upper()}",
+                key="/".join([self.category, self.MARKET, symbol.upper()]),
                 value=value,
             )
 
@@ -231,7 +233,7 @@ class FtxBalanceUpdater(BalanceUpdate, FtxApi):
         messages = []
         for r in records:
             msg = Message(
-                key=f"exchange/balance/{self.MARKET}/{r['coin']}",
+                key="/".join([self.category, self.MARKET, r["coin"]]),
                 value={
                     DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds")),
                     "total": float(r["total"]),
@@ -246,30 +248,7 @@ class FtxBalanceUpdater(BalanceUpdate, FtxApi):
         return messages
 
 
-# FTX Position
-class FtxPositionUpdater(BalanceUpdate, FtxApi):
-    MARKET = "ftx"
-    REQUEST_ARGS = {
-        "path": "/wallet/balances",
-    }
-
-    async def parser(self, records):
-        messages = []
-        for r in records:
-            msg = Message(
-                key=f"exchange/balance/{self.MARKET}/{r['coin']}",
-                value={
-                    DATETIME: str(datetime.now().astimezone(KST).isoformat(timespec="microseconds")),
-                    "total": float(r["total"]),
-                    "locked": float(r["total"]) - float(r["free"]),
-                    "free": float(r["free"]),
-                },
-            )
-
-            logger.debug(f"[UPDATER] FTX Balance Message Parsed: {msg}")
-            messages += [msg]
-
-        return messages
+# [TODO] FTX Position
 
 
 ################################################################

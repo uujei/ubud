@@ -12,7 +12,7 @@ from influxdb_client.client.influxdb_client_async import InfluxDBClientAsync
 
 from ..const import (
     AMOUNT,
-    API_CATEGORY,
+    CATEGORY,
     CHANNEL,
     CURRENCY,
     DATETIME,
