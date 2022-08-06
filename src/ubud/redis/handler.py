@@ -3,9 +3,11 @@ import json
 import logging
 import time
 import traceback
-from typing import Callable
+from typing import Callable, List
 
 import redis.asyncio as redis
+
+from ..models import Message
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +17,7 @@ logger = logging.getLogger(__name__)
 ################################################################
 class RedisStreamHandler:
     """
-    messages = [{"key": <key: str>, "value": <value: dict>}, ...]
+    messages = [Message(key=key, value=value), ...]
     """
 
     def __init__(
@@ -35,29 +37,37 @@ class RedisStreamHandler:
         self._streams_key = f"{self.redis_topic}/keys"
         self._streams = set()
 
-    async def __call__(self, messages):
+    async def __call__(self, messages: List[Message]):
+        if not isinstance(messages, list):
+            messages = [messages]
         try:
-            await asyncio.gather(*[self.xadd(msg) for msg in messages])
+            pipe = self.redis_client.pipeline()
+            _messages = await asyncio.gather(*[self.parse(msg) for msg in messages])
+            for msg in _messages:
+                if msg:
+                    pipe.xadd(**msg)
+            await pipe.execute()
+            if len(_messages) > 0:
+                logger.info(
+                    f"[STREAMER] XADD {len(messages)} Messages w/ MAXLEN {self.redis_xadd_maxlen}, Sample: {msg}"
+                )
         except Exception as ex:
             logger.warn(f"[STREAMER] {ex}")
             traceback.print_exc()
 
-    async def xadd(self, msg):
+    async def parse(self, msg: Message):
         try:
             key = "/".join([self.redis_topic, msg.key])
-            logger.info(f"[STREAMER] XADD {msg} MAXLEN {self.redis_xadd_maxlen}")
-            await self.redis_client.xadd(
-                name=key,
-                fields=msg.value,
-                maxlen=self.redis_xadd_maxlen,
-                approximate=self.redis_xadd_approximate,
-            )
-
             # register stream key
             if key not in self._streams:
                 await self.redis_client.sadd(self._streams_key, key)
                 self._streams = await self.redis_client.smembers(self._streams_key)
-
+            return {
+                "name": key,
+                "fields": msg.value,
+                "maxlen": self.redis_xadd_maxlen,
+                "approximate": self.redis_xadd_approximate,
+            }
         except Exception as ex:
             logger.warning(f"[STREAMER] XADD Failed - {ex}, msg: {msg}")
             traceback.print_exc()

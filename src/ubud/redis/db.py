@@ -64,12 +64,12 @@ class Database:
 
     # [BALANCE]
     async def balance(self, market, symbol):
-        _path = "exchange/balance"
+        _path = "balance"
         key = "/".join([self.redis_topic, _path, market, symbol])
         return await self.xget(key)
 
     async def balances(self, market="*", symbol="*"):
-        _path = "exchange/balance"
+        _path = "balance"
         market, symbol = self._split(market, symbol)
         values = await self.mxget(["/".join([self.redis_topic, _path, m, s]) for m in market for s in symbol])
         if not self.strip_prefix:

@@ -3,8 +3,21 @@ from fnmatch import fnmatch
 
 import parse
 
-from ..const import DATETIME, QUOTATION_KEY_RULE, MARKET, ORDERTYPE, CURRENCY, RANK
+from ..const import (
+    CHANNEL,
+    CURRENCY,
+    DATETIME,
+    MARKET,
+    ORDERTYPE,
+    PRICE,
+    QUANTITY,
+    QUOTATION_KEY_RULE,
+    RANK,
+    SYMBOL,
+    CATEGORY,
+)
 from ..models import Message
+from ..utils.app import key_parser, key_maker
 from ..utils.business import get_order_unit
 from .base import App
 
@@ -31,32 +44,32 @@ class Usd2KrwApp(App):
             self.forex.update(record)
             return
 
-        usd = float(record["price"])
         if krw_per_usd := self.forex.get(self.FOREX_PRICE):
+            # generate message
             try:
-                krw = get_order_unit(usd * float(krw_per_usd))
-                _stream = stream.split("/", 1)[-1].replace("/USD/", "/KRW.usd/")
+                # parse stream name and generate key
+                parsed = key_parser(stream)
+                parsed.update({CURRENCY: "KRW.USD"})
+                # generate msg
                 msg = Message(
-                    key=_stream,
+                    key=key_maker(**parsed),
                     value={
                         DATETIME: record[DATETIME],
-                        "price": krw,
+                        PRICE: get_order_unit(float(record[PRICE]) * float(krw_per_usd)),
+                        QUANTITY: record[QUANTITY],
                     },
                 )
-
                 # logging
-                logger.debug(
-                    "[APP {app}] From {src_stream}, {price}, {usd} -> To {dst_stream}, {price}, {krw}".format(
-                        app=self._me, src_stream=stream, dst_stream=_stream, price="price", usd=usd, krw=krw
-                    )
-                )
+                logger.debug("[APP {app}] From {record} -> To {msg}".format(app=self._me, record=record, msg=msg))
             except Exception as ex:
                 logger.warning("[APP {app}] Transform Failed {ex}".format(app=self._me, ex=ex))
+                return
 
+            # publish message
             try:
                 # xadd using handler
                 if self.redis_stream_handler is not None:
-                    await self.redis_stream_handler.xadd(msg)
+                    await self.redis_stream_handler(msg)
                 logger.info("[APP {app}] XADD {msg}".format(app=self._me, msg=msg))
             except Exception as ex:
                 logger.warning("[APP {app}] XADD Failed {ex}".format(app=self._me, ex=ex))
@@ -67,7 +80,9 @@ class Usd2KrwApp(App):
 ################################################################
 if __name__ == "__main__":
     import asyncio
+
     import redis.asyncio as redis
+
     from ..redis.handler import RedisStreamHandler
 
     logging.basicConfig(level=logging.DEBUG)

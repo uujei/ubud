@@ -5,7 +5,7 @@ import parse
 from clutter.aws import get_secrets
 from dotenv import load_dotenv
 
-from ..const import KST, KEY_PARSER
+from ..const import KST, KEY_PARSER, KEY_RULE, CATEGORY
 
 
 # parse redis address
@@ -124,3 +124,11 @@ def ts_to_strdt(ts, _float=True):
 # universal parser
 def key_parser(key):
     return KEY_PARSER[key.split("/", 2)[1]](key).named
+
+
+# universal key maker
+def key_maker(**kwargs):
+    """
+    [NOTE] It Returns Key Without Topic!
+    """
+    return "/".join([kwargs.get(str(k)) for k in KEY_RULE[kwargs[CATEGORY]]][1:])

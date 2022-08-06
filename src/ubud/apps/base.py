@@ -122,7 +122,8 @@ class App:
                         await self.on_stream(stream=stream, offset=offset, record=record)
                     self._offsets.update({stream: offset})
             except Exception as ex:
-                logger.warning("[APP {0}] Fail XREAD - {1}".format(self._me, ex))
+                logger.warning("[APP {0}] Fail XREAD - {1}, {2}".format(self._me, ex, record))
+                traceback.print_exc()
                 continue
 
     async def update_stream(self):

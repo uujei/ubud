@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 # Orderbook
 ################################################################
 class Orderbook:
+    """
+    [NOTE] Orderbook Store
+    기존 호가를 저장하기 위한 Class.
+    변경호가만을 제공 받는 경우 기존 호가를 저장하고 있어야 호가 변동 후의 순위(rank)를 알 수 있다.
+    """
+
     def __init__(self, orderType, orderbook_depth=5):
         assert orderType in [ASK, BID], f"[ERROR] Wrong orderType {orderType}! - {ASK} or {BID} is available"
         self.orderType = orderType

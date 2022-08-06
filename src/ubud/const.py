@@ -76,7 +76,7 @@ TS_MQ_RECV = "_ts_mq_recv"
 QUOTATION_KEY_RULE = [TOPIC, CATEGORY, CHANNEL, MARKET, SYMBOL, CURRENCY, ORDERTYPE, RANK]
 QUOTATION_KEY_PARSER = parse.compile("/".join(["{{{}}}".format(x) for x in QUOTATION_KEY_RULE]))
 
-PREMIUM_KEY_RULE = [TOPIC, CATEGORY, MARKET, SYMBOL, CURRENCY]
+PREMIUM_KEY_RULE = [TOPIC, CATEGORY, CHANNEL, MARKET, SYMBOL, CURRENCY]
 PREMIUM_KEY_PARSER = parse.compile("/".join(["{{{}}}".format(x) for x in PREMIUM_KEY_RULE]))
 
 BALANCE_KEY_RULE = [TOPIC, CATEGORY, MARKET, SYMBOL]
@@ -84,6 +84,13 @@ BALANCE_KEY_PARSER = parse.compile("/".join(["{{{}}}".format(x) for x in BALANCE
 
 FOREX_KEY_RULE = [TOPIC, CATEGORY, CODES]
 FOREX_KEY_PARSER = parse.compile("/".join(["{{{}}}".format(x) for x in FOREX_KEY_RULE]))
+
+KEY_RULE = {
+    "quotation": QUOTATION_KEY_RULE,
+    "balance": BALANCE_KEY_RULE,
+    "forex": FOREX_KEY_RULE,
+    "premium": PREMIUM_KEY_RULE,
+}
 
 KEY_PARSER = {
     "quotation": QUOTATION_KEY_PARSER.parse,

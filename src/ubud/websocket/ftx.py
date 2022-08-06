@@ -306,12 +306,9 @@ class FtxWebsocket(BaseWebsocket):
 if __name__ == "__main__":
     import os
     import sys
+    from ..utils.app import load_secrets
 
-    import dotenv
-
-    dotenv.load_dotenv()
-    apiKey = os.environ["FTX_API_KEY"]
-    apiSecret = os.environ["FTX_API_SECRET"]
+    secrets = load_secrets("external/ubud")
 
     logger.setLevel(logging.DEBUG)
     log_handler = logging.StreamHandler()
@@ -329,7 +326,7 @@ if __name__ == "__main__":
         symbols = ["BTC", "WAVES"]
 
     async def tasks():
-        coros = [FtxWebsocket(apiKey=apiKey, apiSecret=apiSecret, channel=c, symbols=symbols).run() for c in channels]
+        coros = [FtxWebsocket(**secrets["ftx"], channel=c, symbols=symbols).run() for c in channels]
         await asyncio.gather(*coros)
 
     asyncio.run(tasks())

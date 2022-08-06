@@ -32,7 +32,7 @@ class BaseApi(abc.ABC):
             async with client.request(method=method, **args) as resp:
                 if resp.status not in [200, 201]:
                     _text = await resp.text()
-                    raise ReferenceError(f"status code: {resp.status}, message: {_text}")
+                    logger.warning(f"[UPDATER] API Request Failed - status {resp.status}, {_text}")
                 _handlers = [
                     self._limit_handler(resp.headers),
                     self._default_handler(resp),
