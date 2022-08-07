@@ -212,6 +212,7 @@ class BithumbWebsocket(BaseWebsocket):
             if "content" in body.keys():
                 content = body["content"]
                 ts_ws_send = int(content["datetime"]) / 1e6
+                dt = datetime.fromtimestamp(ts_ws_send).astimezone(KST).isoformat(timespec="microseconds")
 
                 symbols = set()
                 currencies = set()
@@ -225,9 +226,9 @@ class BithumbWebsocket(BaseWebsocket):
 
                     self.orderbooks[symbol][currency][orderType].update(
                         {
-                            DATETIME: ts_to_strdt(ts_ws_send),
                             PRICE: price,
                             QUANTITY: quantity,
+                            DATETIME: dt,
                             TS_WS_SEND: ts_ws_send,
                         }
                     )
@@ -257,7 +258,7 @@ class BithumbWebsocket(BaseWebsocket):
                                 msg = Message(
                                     key=key,
                                     value={
-                                        DATETIME: ts_to_strdt(ts_ws_send),
+                                        DATETIME: dt,
                                         PRICE: orderbook[PRICE],
                                         QUANTITY: orderbook[QUANTITY],
                                         TS_WS_SEND: orderbook[TS_WS_SEND],

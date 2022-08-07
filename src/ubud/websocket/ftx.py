@@ -247,6 +247,7 @@ class FtxWebsocket(BaseWebsocket):
                         # update
                         ts = data["time"]
                         dt = datetime.fromtimestamp(ts).astimezone(KST).isoformat(timespec="microseconds")
+
                         self.orderbooks[symbol][currency][orderType].update(
                             {
                                 PRICE: float(price),
