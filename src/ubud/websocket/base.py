@@ -39,11 +39,11 @@ class Orderbook:
 
     def __call__(self):
         # [NOTE]
-        # depth보다 원소 수가 2개 더 많은 것은 trade 처리 때문 (거래 체결 시 더 낮은 Orderbook 삭제)
+        # depth보다 원소 수가 5개 더 많은 것은 trade 처리 때문 (거래 체결 시 더 낮은 Orderbook 삭제)
         self.orderbooks = {
             k: self.orderbooks[k]
             for i, k in enumerate(sorted(self.orderbooks, reverse=self.reverse))
-            if i < self.orderbook_depth + 2
+            if i < self.orderbook_depth + 5
         }
         return [{**v, RANK: i + 1} for i, (_, v) in enumerate(self.orderbooks.items()) if i < self.orderbook_depth]
 
