@@ -4,29 +4,69 @@
 
 ####  Update
 
-**2022.7.17   conf.yml 사용 안 함, KEY와 SECRET들만 환경변수 또는 .env로 저장**
+2022.8.7	influxdb sink connector 리소스 이슈로 multi-processing으로 변경 (ray)
 
-2022.7.16   리소스 이슈로 구조 수정 (CPU 사용률 절반으로 줄임)
+**2022.7.17	conf.yml 사용 안 함, KEY와 SECRET들만 환경변수 또는 .env로 저장**
 
-2022.7.14   conf.yml 형식 수정
+2022.7.16	리소스 이슈로 구조 수정 (CPU 사용률 절반으로 줄임)
 
-2022.7.14   InfluxDB Sink 작성 및 테스트
+2022.7.14	conf.yml 형식 수정
 
-2022.7.14   Orderbook 레코드에 Rank 포함 (Rank 포함 안 되어 있어서, 후순위 호가가 선순위를 계속 덮어쓰고 있었음)
+2022.7.14	InfluxDB Sink 작성 및 테스트
 
-2022.7.12   서버측 문제로 API 끊어질 경우 (수 시간에 한 번씩 발생) 다시 시도하도록 BalanceUpdater 수정
+2022.7.14	Orderbook 레코드에 Rank 포함 (Rank 포함 안 되어 있어서, 후순위 호가가 선순위를 계속 덮어쓰고 있었음)
 
-2022.7.12   Database에 trade, ordrebook, balance, forex 메소드 추가 (사용하기 쉽도록)
+2022.7.12	서버측 문제로 API 끊어질 경우 (수 시간에 한 번씩 발생) 다시 시도하도록 BalanceUpdater 수정
 
-2022.7.11   Websocket 끊어지는 문제 해결 (ping_timeout 제거)
+2022.7.12	Database에 trade, ordrebook, balance, forex 메소드 추가 (사용하기 쉽도록)
 
-2022.7.11  속도 개선 (비동기 Loop를 asyncio native에서 uvloop으로 교체)
+2022.7.11	Websocket 끊어지는 문제 해결 (ping_timeout 제거)
+
+2022.7.11	속도 개선 (비동기 Loop를 asyncio native에서 uvloop으로 교체)
 
 
 
 #### TO DO
 
 주문 처리기 개발
+
+
+
+#### Stream 구조
+
+  **(참고) default topic은 ubud**
+
+  **환율   {topic}/forex**
+
+  **잔고   {topic}/balance/{market}/{symbol}**
+
+​    . market: upbit, bithumb, ftx
+
+​    . symbol: BTC, ETH, WAVES, ...
+
+  **현재가   {topic}/quotation/{channel}/{market}/{symbol}/{currency}/{orderType}/{rank}**
+
+​    . channel: orderbook, trade
+
+​    . market: upbit, bithumb, ftx
+
+​    . symbol: BTC, ETH, WAVES, ...
+
+​    . currency: KRW, USD, PERP, KRW.USD   * KRW.USD는 USD를 KRW로 환산한 값
+
+​    . orderType: ask, bid
+
+​    . rank: 0, 1, 2, ...   * trade의 rank는 항상 0, orderbook은 1, 2, 3, ...
+
+  **프리미엄   {topic}/premium/{channel}/{market}/{symbol}/{currency}**
+
+​    . channel: orderbook, trade   * 현재 orderbook 1순위 및 trade로 premium 계산하고 있음
+
+​    . market: upbit.bithumb, upbit,ftx, bithumb.upbit, bithumb.ftx, ...   * premium A.B = A 거래소의 bid 가격을 B 거래소의 ask 가격으로 나눈 것
+
+​    . symbol: BTC, ETH, WAVES, ...
+
+​    . currency: KRW   * 현재는 KRW 기준으로만
 
 
 
@@ -83,6 +123,9 @@ await db.orderbooks()
 # 모든 Trade 조회하기
 await db.trades()
 
+# 모든 Premiums 조회하기
+await db.premiums()
+
 # 환율 조회하기
 await db.forex()
 
@@ -94,4 +137,3 @@ await db.trades(market="upbit,ftx", symbol="BTC")
 await db.orderbooks(market="upbit,bithumb", symbol="WAVES", max_rank=3)
 
 ```
-
