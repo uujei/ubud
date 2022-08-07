@@ -183,7 +183,7 @@ class FtxWebsocket(BaseWebsocket):
                             SYMBOL: symbol,
                             CURRENCY: currency,
                             ORDERTYPE: orderType,
-                            RANK: 0,
+                            RANK: "0",
                         }
                     )
 
@@ -274,7 +274,7 @@ class FtxWebsocket(BaseWebsocket):
                                 SYMBOL: symbol,
                                 CURRENCY: currency,
                                 ORDERTYPE: orderType,
-                                RANK: orderbook[RANK],
+                                RANK: str(orderbook[RANK]),
                             }
                         )
 
