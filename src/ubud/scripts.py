@@ -8,8 +8,8 @@ from click_loglevel import LogLevel
 from clutter.aws import get_secrets
 from dotenv import load_dotenv
 
-from .apps.influxdb_sink import InfluxDBConnector
-from .stream import stream_balance_api, stream_common_apps, stream_forex_api, stream_websocket
+from .apps.connector.influxdb_connector import InfluxDBConnector
+from .streams import stream_balance_api, stream_common_apps, stream_forex_api, stream_influxdb_sink, stream_websocket
 from .utils.app import load_secrets, parse_redis_addr, repr_conf
 
 logger = logging.getLogger(__name__)
@@ -240,7 +240,8 @@ def start_common_apps(redis_addr, redis_topic, redis_xadd_maxlen, log_level):
 @click.option("-c", "--channels", default=DEFAULT_CHANNELS, type=str)
 @click.option("-s", "--symbols", default=DEFAULT_SYMBOLS, type=str)
 @click.option("--currencies", default=DEFAULT_CURRENCIES, type=str)
-@click.option("--codes", default="FRX.KRWUSD", type=str)
+@click.option("--orderbook-depth", default=5, type=int)
+@click.option("--forex-codes", default="FRX.KRWUSD", type=str)
 @click.option("--interval", default=0.5, type=float)
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
@@ -252,7 +253,8 @@ def start_stream(
     channels,
     symbols,
     currencies,
-    codes,
+    orderbook_depth,
+    forex_codes,
     interval,
     redis_topic,
     secret_key,
@@ -261,6 +263,7 @@ def start_stream(
     log_level,
 ):
     import ray
+
     import redis
 
     # set log level
@@ -290,6 +293,7 @@ def start_stream(
                     "channels": channels,
                     "symbols": symbols,
                     "currencies": _currencies,
+                    "orderbook_depth": orderbook_depth,
                     "redis_addr": redis_addr,
                     "redis_topic": redis_topic,
                     "redis_xadd_maxlen": redis_xadd_maxlen,
@@ -301,7 +305,7 @@ def start_stream(
 
     # API ACTOR
     @ray.remote
-    class ApiActor:
+    class RestApiActor:
         def __init__(self, log_level):
             logging.basicConfig(level=log_level)
 
@@ -324,7 +328,7 @@ def start_stream(
 
             # forex_api stream
             conf = {
-                "codes": codes,
+                "codes": forex_codes,
                 "interval": interval,
                 "redis_addr": redis_addr,
                 "redis_topic": redis_topic,
@@ -337,7 +341,7 @@ def start_stream(
 
     # APP ACTOR
     @ray.remote
-    class AppActor:
+    class CommonStreamAppActor:
         def __init__(self, log_level):
             logging.basicConfig(level=log_level)
 
@@ -361,15 +365,15 @@ def start_stream(
 
     # create instances
     websocket_actor = WebsocketActor.remote(log_level=log_level)
-    api_actor = ApiActor.remote(log_level=log_level)
-    app_actor = AppActor.remote(log_level=log_level)
+    rest_api_actor = RestApiActor.remote(log_level=log_level)
+    common_stream_app_actor = CommonStreamAppActor.remote(log_level=log_level)
 
     # START TASKS
     ray.get(
         [
             websocket_actor.run.remote(),
-            api_actor.run.remote(),
-            app_actor.run.remote(),
+            rest_api_actor.run.remote(),
+            common_stream_app_actor.run.remote(),
         ]
     )
 
@@ -382,7 +386,7 @@ def start_stream(
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
 @click.option("--influxdb-url", default=None, type=str)
 @click.option("--influxdb-flush-sec", default=0.5, type=float)
-@click.option("--influxdb-flush-size", default=3000, type=float)
+@click.option("--influxdb-flush-size", default=5000, type=float)
 @click.option("--secret-key", default="theone", type=str)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
 def start_influxdb_sink(
@@ -394,7 +398,7 @@ def start_influxdb_sink(
     secret_key,
     log_level,
 ):
-    import redis.asyncio as redis
+    import ray
 
     # set log level
     logging.basicConfig(
@@ -405,30 +409,62 @@ def start_influxdb_sink(
     # secret
     secret = load_secrets(secret_key)
 
-    # redis_client
+    # redis_conf
     redis_conf = parse_redis_addr(redis_addr)
-    redis_client = redis.Redis(**redis_conf)
 
-    # influxdb
+    # redis_opts
+    redis_opts = {
+        "redis_xread_block": 100,
+        "redis_stream_update_interval": 5,
+    }
+
+    # influxdb_conf
     influxdb_conf = secret["influxdb"]
     if influxdb_url is not None:
         influxdb_conf["influxdb_url"] = influxdb_url
 
-    # TASKS #
-    conf = {
-        "redis_client": redis_client,
-        "redis_topic": redis_topic,
-        "redis_xread_block": 100,
-        "redis_stream_update_interval": 5,
-        **influxdb_conf,
+    # influxdb_opts
+    influxdb_opts = {
         "influxdb_flush_sec": influxdb_flush_sec,
         "influxdb_flush_size": influxdb_flush_size,
     }
-    logger.info(f"[UBUD] Start InfluxDB Sink Stream - {repr_conf(conf)}")
 
-    influxdb_connector = InfluxDBConnector(**conf)
+    # streams
+    list_redis_streams = [
+        ["*/quotation/trade/ftx/*", *[f"*/quotation/orderbook/ftx/*/{rank}" for rank in range(1, 6)]],
+        [f"*/quotation/orderbook/ftx/*/{rank}" for rank in range(6, 11)],
+        [f"*/quotation/orderbook/ftx/*/{rank}" for rank in range(11, 16)],
+        ["*/quotation/*/upbit/*", "*/quotation/*/bithumb/*"],
+        ["*/forex/*", "*/premium/*"],
+    ]
+
+    @ray.remote
+    def remote_stream_influxdb_sink(conf):
+        # set log level for task
+        logging.basicConfig(
+            level=log_level,
+            format=DEFAULT_LOG_FORMAT,
+        )
+
+        # run task
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(stream_influxdb_sink(**conf))
+
+    procs = []
+    for redis_streams in list_redis_streams:
+        # TASKS #
+        conf = {
+            "redis_topic": redis_topic,
+            "redis_streams": redis_streams,
+            "redis_conf": redis_conf,
+            "redis_opts": redis_opts,
+            "influxdb_conf": influxdb_conf,
+            "influxdb_opts": influxdb_opts,
+        }
+        logger.info(f"[UBUD] Start InfluxDB Sink Stream - {repr_conf(conf)}")
+
+        # add process
+        procs += [remote_stream_influxdb_sink.remote(conf=conf)]
 
     # START TASKS
-    loop = uvloop.new_event_loop()
-    asyncio.set_event_loop(loop)
-    asyncio.run(influxdb_connector.run())
+    ray.get(procs)

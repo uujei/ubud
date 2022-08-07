@@ -63,6 +63,7 @@ TOTAL_QUANTITY = "total_qty"
 BOOK_COUNT = "book_count"
 
 # FOREX
+FOREX = "forex"
 CODES = "codes"
 
 # MQ TIMESTAMP

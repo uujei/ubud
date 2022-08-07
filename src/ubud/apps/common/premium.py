@@ -1,11 +1,11 @@
 import logging
 from datetime import datetime
 
-from ..const import ASK, BID, CATEGORY, CHANNEL, CURRENCY, DATETIME, MARKET, ORDERTYPE, SYMBOL
-from ..models import Message
-from ..utils.app import key_maker, key_parser
-from ..utils.business import get_order_unit
-from .base import App
+from ...const import ASK, BID, CATEGORY, CHANNEL, CURRENCY, DATETIME, MARKET, ORDERTYPE, SYMBOL
+from ...models import Message
+from ...utils.app import key_maker, key_parser
+from ...utils.business import get_order_unit
+from ..base import App
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,8 @@ class PremiumApp(App):
                             }
                         ),
                         value={
+                            DATETIME: record[DATETIME],
+                            "timedelta": delta,
                             "premium": factor - 1,
                             "factor": factor,
                         },

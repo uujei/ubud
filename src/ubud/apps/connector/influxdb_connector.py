@@ -1,59 +1,42 @@
 import asyncio
-import json
 import logging
 import time
 import traceback
 from typing import Callable
 
-import parse
 import redis.asyncio as redis
-from influxdb_client import InfluxDBClient, WriteOptions
 from influxdb_client.client.influxdb_client_async import InfluxDBClientAsync
 
-from ..const import (
+from ...const import (
     AMOUNT,
     CATEGORY,
     CHANNEL,
+    CODES,
     CURRENCY,
     DATETIME,
-    FOREX_KEY_PARSER,
-    FOREX_KEY_RULE,
     MARKET,
     ORDERTYPE,
-    PREMIUM_KEY_PARSER,
-    PREMIUM_KEY_RULE,
     PRICE,
     QUANTITY,
-    QUOTATION_KEY_PARSER,
-    QUOTATION_KEY_RULE,
     RANK,
     SYMBOL,
-    TS_MARKET,
-    TS_MQ_RECV,
-    TS_MQ_SEND,
-    TS_WS_RECV,
-    TS_WS_SEND,
-    UTC,
 )
-from ..utils.app import parse_redis_addr
-from .base import App
+from ...utils.app import key_maker, key_parser
+from ..base import App
 
 logger = logging.getLogger(__name__)
 
 #
 PARSER = {
     "quotation": {
-        "parser": QUOTATION_KEY_PARSER,
         "tags": [MARKET, CHANNEL, SYMBOL, CURRENCY, ORDERTYPE, RANK],
         "fields": [PRICE, QUANTITY, AMOUNT],
     },
     "forex": {
-        "parser": FOREX_KEY_PARSER,
-        "tags": ["codes"],
+        "tags": [CODES],
         "fields": ["basePrice", "highPrice", "lowPrice", "cashBuyingPrice", "cashSellingPrice"],
     },
     "premium": {
-        "parser": PREMIUM_KEY_PARSER,
         "tags": [MARKET, CHANNEL, SYMBOL, CURRENCY, ORDERTYPE, RANK],
         "fields": ["factor", "premium"],
     },
@@ -136,8 +119,7 @@ class InfluxDBConnector(App):
                 write_api = client.write_api()
                 ack = await write_api.write(self.redis_topic, self.influxdb_org, points)
                 if not ack:
-                    raise
-
+                    raise asyncio.TimeoutError(f"Ack Timeout '{ack}' - {len(points)} points")
             logger.info(
                 "[INFLUXDB] Write {0:4d} Points into Bucket {1}, Sample {2}".format(
                     len(points), self.redis_topic, points[0]
@@ -148,12 +130,14 @@ class InfluxDBConnector(App):
             traceback.print_exc()
 
     def parser(self, key, value):
-        source = key.split("/", 2)[1]
-        meta = PARSER[source]["parser"].parse(key).named
+
+        parsed = key_parser(key)
+        category = parsed[CATEGORY]
+
         p = {
-            "measurement": source,
-            "tags": {k: v for k, v in meta.items() if k in PARSER[source]["tags"]},
-            "fields": {k: float(v) for k, v in value.items() if k in PARSER[source]["fields"]},
+            "measurement": category,
+            "tags": {k: v for k, v in parsed.items() if k in PARSER[category]["tags"]},
+            "fields": {k: float(v) for k, v in value.items() if k in PARSER[category]["fields"]},
             "time": value[DATETIME],
         }
         logger.debug("[APP {app}] Point : {p}".format(app=self._me, p=p))

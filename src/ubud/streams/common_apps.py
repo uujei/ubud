@@ -4,8 +4,8 @@ import os
 
 import redis.asyncio as redis
 
-from ..apps.premium import PremiumApp
-from ..apps.usd_to_krw import Usd2KrwApp
+from ..apps.common.premium import PremiumApp
+from ..apps.common.usd_to_krw import Usd2KrwApp
 from ..redis import RedisStreamHandler
 from ..redis.handler import RedisStreamHandler
 from ..utils.app import parse_redis_addr, split_delim

@@ -3,7 +3,7 @@ from fnmatch import fnmatch
 
 import parse
 
-from ..const import (
+from ...const import (
     CHANNEL,
     CURRENCY,
     DATETIME,
@@ -15,11 +15,12 @@ from ..const import (
     RANK,
     SYMBOL,
     CATEGORY,
+    FOREX,
 )
-from ..models import Message
-from ..utils.app import key_parser, key_maker
-from ..utils.business import get_order_unit
-from .base import App
+from ...models import Message
+from ...utils.app import key_parser, key_maker
+from ...utils.business import get_order_unit
+from ..base import App
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +41,20 @@ class Usd2KrwApp(App):
                 app=self._me, stream=stream, offset=offset, record=record
             )
         )
-        if "FRX.KRWUSD" in stream:
+
+        # Parser Key
+        parsed = key_parser(stream)
+
+        # Update FOREX if Record is FOREX
+        if parsed[CATEGORY] == FOREX:
             self.forex.update(record)
             return
 
+        # Update KRW Price if Not FOREX
         if krw_per_usd := self.forex.get(self.FOREX_PRICE):
             # generate message
             try:
                 # parse stream name and generate key
-                parsed = key_parser(stream)
                 parsed.update({CURRENCY: "KRW.USD"})
                 # generate msg
                 msg = Message(
