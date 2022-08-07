@@ -8,7 +8,7 @@ import traceback
 from datetime import datetime, timedelta
 from typing import Callable, DefaultDict, Deque, Dict, List, Optional, Tuple
 
-import websockets
+from ..utils.app import key_maker
 
 from ..const import (
     AMOUNT,
@@ -175,16 +175,17 @@ class FtxWebsocket(BaseWebsocket):
                     price = float(record["price"])
 
                     # key
-                    _key = {
-                        CATEGORY: THIS_CATEGORY,
-                        CHANNEL: TRADE,
-                        MARKET: THIS_MARKET,
-                        SYMBOL: symbol,
-                        CURRENCY: currency,
-                        ORDERTYPE: orderType,
-                        RANK: 0,
-                    }
-                    key = "/".join([str(_key[k]) for k in QUOTATION_KEY_RULE[1:]])
+                    key = key_maker(
+                        **{
+                            CATEGORY: THIS_CATEGORY,
+                            CHANNEL: TRADE,
+                            MARKET: THIS_MARKET,
+                            SYMBOL: symbol,
+                            CURRENCY: currency,
+                            ORDERTYPE: orderType,
+                            RANK: 0,
+                        }
+                    )
 
                     # avoid duplicated datetime
                     trade_dt = datetime.fromisoformat(record["time"]).astimezone(KST)
@@ -265,19 +266,21 @@ class FtxWebsocket(BaseWebsocket):
                     orderbooks = self.orderbooks[symbol][currency][orderType]()
                     for orderbook in orderbooks:
                         # key
-                        _key = {
-                            CATEGORY: THIS_CATEGORY,
-                            CHANNEL: ORDERBOOK,
-                            MARKET: THIS_MARKET,
-                            SYMBOL: symbol,
-                            CURRENCY: currency,
-                            ORDERTYPE: orderType,
-                            RANK: orderbook[RANK],
-                        }
+                        key = key_maker(
+                            **{
+                                CATEGORY: THIS_CATEGORY,
+                                CHANNEL: ORDERBOOK,
+                                MARKET: THIS_MARKET,
+                                SYMBOL: symbol,
+                                CURRENCY: currency,
+                                ORDERTYPE: orderType,
+                                RANK: orderbook[RANK],
+                            }
+                        )
 
                         # add message
                         msg = Message(
-                            key="/".join([str(_key[k]) for k in QUOTATION_KEY_RULE[1:]]),
+                            key=key,
                             value={
                                 DATETIME: latest_dt,
                                 PRICE: orderbook[PRICE],
