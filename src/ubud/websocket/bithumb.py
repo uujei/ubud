@@ -221,7 +221,7 @@ class BithumbWebsocket(BaseWebsocket):
                 for record in content["list"]:
                     symbol, currency = _split_symbol(record["symbol"])
                     orderType = record[ORDERTYPE]
-                    price = record[PRICE]
+                    price = float(record[PRICE])
                     quantity = float(record[QUANTITY])
 
                     self.orderbooks[symbol][currency][orderType].update(

@@ -45,8 +45,6 @@ class Orderbook:
             for i, k in enumerate(sorted(self.orderbooks, reverse=self.reverse))
             if i < self.orderbook_depth + 1
         }
-        if len(self.orderbooks) < self.orderbook_depth:
-            return []
         return [{**v, RANK: i + 1} for i, (_, v) in enumerate(self.orderbooks.items()) if i < self.orderbook_depth]
 
     def update(self, order):
