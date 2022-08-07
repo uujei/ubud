@@ -36,6 +36,7 @@ from ..const import (
 )
 from ..models import Message
 from .base import BaseWebsocket, Orderbook
+from ..utils.app import key_maker
 
 logger = logging.getLogger(__name__)
 
@@ -151,11 +152,16 @@ class BithumbWebsocket(BaseWebsocket):
                 content = body["content"]
                 for r in content["list"]:
                     symbol, currency = _split_symbol(r["symbol"])
-                    orderType = ASK if r["buySellGb"] == "1" else BID
 
                     price = float(r["contPrice"])
                     quantity = float(r["contQty"])
                     amount = float(r["contAmt"])
+                    if r["buySellGb"] == "1":
+                        orderType = ASK
+                    elif r["buySellGb"] == "2":
+                        orderType = BID
+                    else:
+                        logger.warning(f"[WEBOSKCET] Unknown buySellGb for bithumb {r['buySellGb']}!")
 
                     _dt = datetime.fromisoformat(r["contDtm"]).astimezone(KST)
                     trade_datetime = _dt.isoformat(timespec="microseconds")
@@ -207,56 +213,61 @@ class BithumbWebsocket(BaseWebsocket):
                 content = body["content"]
                 ts_ws_send = int(content["datetime"]) / 1e6
 
-                for symbol in self.symbols:
-                    new_orderbooks = [o for o in content["list"] if o["symbol"] == symbol]
+                symbols = set()
+                currencies = set()
+                orderTypes = set()
 
-                    if len(new_orderbooks) == 0:
-                        continue
+                for record in content["list"]:
+                    symbol, currency = _split_symbol(record["symbol"])
+                    orderType = record[ORDERTYPE]
+                    price = record[PRICE]
+                    quantity = float(record[QUANTITY])
 
-                    symbol, currency = _split_symbol(new_orderbooks[0]["symbol"])
+                    self.orderbooks[symbol][currency][orderType].update(
+                        {
+                            DATETIME: ts_to_strdt(ts_ws_send),
+                            PRICE: price,
+                            QUANTITY: quantity,
+                            TS_WS_SEND: ts_ws_send,
+                        }
+                    )
 
-                    for orderType in [ASK, BID]:
-                        # Register New Orderbooks
-                        for orderbook in [o for o in new_orderbooks if o["orderType"] == orderType]:
-                            # update
-                            self.orderbooks[symbol][currency][orderType].update(
-                                {
-                                    PRICE: float(orderbook["price"]),
-                                    QUANTITY: float(orderbook["quantity"]),
-                                    DATETIME: ts_to_strdt(ts_ws_send),
-                                    TS_WS_SEND: ts_ws_send,
-                                }
-                            )
+                    # update
+                    symbols |= {symbol}
+                    currencies |= {currency}
+                    orderTypes |= {orderType}
 
-                        # Append Messages
-                        orderbooks = self.orderbooks[symbol][currency][orderType]()
-                        for orderbook in orderbooks:
-                            # key
-                            _key = {
-                                CATEGORY: THIS_CATEGORY,
-                                CHANNEL: ORDERBOOK,
-                                MARKET: THIS_MARKET,
-                                SYMBOL: symbol,
-                                CURRENCY: currency,
-                                ORDERTYPE: orderType,
-                                RANK: orderbook[RANK],
-                            }
+                # order and return orderbooks
+                for symbol in symbols:
+                    for currency in currencies:
+                        for orderType in orderTypes:
+                            orderbooks = self.orderbooks[symbol][currency][orderType]()
+                            for orderbook in orderbooks:
+                                key = key_maker(
+                                    **{
+                                        CATEGORY: THIS_CATEGORY,
+                                        CHANNEL: ORDERBOOK,
+                                        MARKET: THIS_MARKET,
+                                        SYMBOL: symbol,
+                                        CURRENCY: currency,
+                                        ORDERTYPE: orderType,
+                                        RANK: str(orderbook[RANK]),
+                                    }
+                                )
+                                msg = Message(
+                                    key=key,
+                                    value={
+                                        DATETIME: ts_to_strdt(ts_ws_send),
+                                        PRICE: orderbook[PRICE],
+                                        QUANTITY: orderbook[QUANTITY],
+                                        TS_WS_SEND: orderbook[TS_WS_SEND],
+                                        TS_WS_RECV: ts_ws_recv,
+                                    },
+                                )
+                                messages += [msg]
 
-                            # add message
-                            msg = Message(
-                                key="/".join([str(_key[k]) for k in QUOTATION_KEY_RULE[1:]]),
-                                value={
-                                    DATETIME: ts_to_strdt(ts_ws_send),
-                                    PRICE: orderbook[PRICE],
-                                    QUANTITY: orderbook[QUANTITY],
-                                    TS_WS_SEND: orderbook[TS_WS_SEND],
-                                    TS_WS_RECV: ts_ws_recv,
-                                },
-                            )
-                            messages += [msg]
-
-                            # logging
-                            logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
+                                # logging
+                                logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
 
         except Exception as ex:
             logger.warn(f"[WEBSOCKET] Bithumb Orderbook Parser Error - {ex}")
