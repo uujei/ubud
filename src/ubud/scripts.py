@@ -65,13 +65,23 @@ def ubud():
 @click.option("-c", "--channels", default=DEFAULT_CHANNELS, type=str)
 @click.option("-s", "--symbols", default=DEFAULT_SYMBOLS, type=str)
 @click.option("--currencies", default=DEFAULT_CURRENCIES, type=str)
+@click.option("--orderbook-depth", default=5, type=int)
 @click.option("--redis-addr", default=DEFAULT_REDIS_ADDR, type=str)
 @click.option("--redis-topic", default=DEFAULT_REDIS_TOPIC, type=str)
 @click.option("--redis-xadd-maxlen", default=DEFAULT_REDIS_XADD_MAXLEN, type=int)
 @click.option("--secret-key", default=None, type=str)
 @click.option("--log-level", default=logging.WARNING, type=LogLevel())
 def start_websocket_stream(
-    market, channels, symbols, currencies, redis_topic, secret_key, redis_addr, redis_xadd_maxlen, log_level
+    market,
+    channels,
+    symbols,
+    currencies,
+    orderbook_depth,
+    redis_topic,
+    secret_key,
+    redis_addr,
+    redis_xadd_maxlen,
+    log_level,
 ):
     # set log level
     logging.basicConfig(
@@ -94,6 +104,7 @@ def start_websocket_stream(
                 "channels": channels,
                 "symbols": symbols,
                 "currencies": _currencies,
+                "orderbook_depth": orderbook_depth,
                 "redis_addr": redis_addr,
                 "redis_topic": redis_topic,
                 "redis_xadd_maxlen": redis_xadd_maxlen,
