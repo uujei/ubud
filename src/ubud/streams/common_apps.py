@@ -23,30 +23,35 @@ async def stream_common_apps(
     redis_conf = parse_redis_addr(redis_addr)
     redis_client = redis.Redis(**redis_conf)
 
-    # create handler
-    handler = RedisStreamHandler(
+    # coroutines
+    coros = []
+
+    # add 원화 환산 앱
+    forex_handler = RedisStreamHandler(
         redis_client=redis_client,
         redis_topic=redis_topic,
         redis_xadd_maxlen=redis_xadd_maxlen,
     )
 
-    # coroutines
-    coros = []
-
-    # add 원화 환산 앱
     forex_app = Usd2KrwApp(
         redis_client=redis_client,
         redis_topic=redis_topic,
-        redis_streams=["*/forex/*", "*/USD/*/[0-1]"],
-        redis_stream_handler=handler,
+        redis_streams=["*/forex/*", "*/quotation/*/USD/*"],
+        redis_stream_handler=forex_handler,
     )
     coros += [forex_app.run()]
 
     # add 프리미엄 계산 앱
+    premium_handler = RedisStreamHandler(
+        redis_client=redis_client,
+        redis_topic=redis_topic,
+        redis_xadd_maxlen=redis_xadd_maxlen,
+    )
+
     premium_app = PremiumApp(
         redis_client=redis_client,
         redis_streams=["*/quotation/*/KRW*/*/[0-1]"],
-        redis_stream_handler=handler,
+        redis_stream_handler=premium_handler,
     )
     coros += [premium_app.run()]
 

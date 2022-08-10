@@ -39,11 +39,11 @@ class Orderbook:
 
     def __call__(self):
         # [NOTE]
-        # depth보다 원소 수가 5개 더 많은 것은 trade 처리 때문 (거래 체결 시 더 낮은 Orderbook 삭제)
+        # depth보다 원소 수가 10개 더 많은 것은 trade 처리 때문 (거래 체결 시 더 낮은 Orderbook 삭제)
         self.orderbooks = {
             k: self.orderbooks[k]
             for i, k in enumerate(sorted(self.orderbooks, reverse=self.reverse))
-            if i < self.orderbook_depth + 5
+            if i < self.orderbook_depth + 10
         }
         return [{**v, RANK: i + 1} for i, (_, v) in enumerate(self.orderbooks.items()) if i < self.orderbook_depth]
 
@@ -53,9 +53,9 @@ class Orderbook:
         # trade 발생하면 그보다 높거나(매도호가), 낮은(매수호가) 주문만 남김.
         if order[QUANTITY] < 0.0:
             if self.orderType == ASK:
-                self.orderbooks = {k: v for k, v in self.orderbooks if k > order[PRICE]}
-            else:
                 self.orderbooks = {k: v for k, v in self.orderbooks if k < order[PRICE]}
+            else:
+                self.orderbooks = {k: v for k, v in self.orderbooks if k > order[PRICE]}
             return
 
         # Quantity가 0으로 변경된 호가를 저장된 Orderbook에서 삭제
