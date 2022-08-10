@@ -21,7 +21,7 @@ class InfoAccount(BaseModel):
 class InfoBalance(BaseModel):
     method: str = "post"
     route: str = "/info/balance"
-    currency: str = "BTC"
+    currency: str = "ALL"
 
     class Config:
         extra = Extra.forbid

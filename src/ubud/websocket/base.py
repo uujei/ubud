@@ -53,9 +53,11 @@ class Orderbook:
         # trade 발생하면 그보다 높거나(매도호가), 낮은(매수호가) 주문만 남김.
         if order[QUANTITY] < 0.0:
             if self.orderType == ASK:
+                self.orderbooks = {k: v for k, v in self.orderbooks if k > order[PRICE]}
+            if self.orderType == BID:
                 self.orderbooks = {k: v for k, v in self.orderbooks if k < order[PRICE]}
             else:
-                self.orderbooks = {k: v for k, v in self.orderbooks if k > order[PRICE]}
+                logger.warning(f"[WARNING] Check websocket.base.orderbook:update, unknown orderType {self.orderType}!")
             return
 
         # Quantity가 0으로 변경된 호가를 저장된 Orderbook에서 삭제

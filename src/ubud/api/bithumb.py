@@ -67,6 +67,9 @@ class BithumbApi(BaseApi):
         body = await resp.json()
         # parse and valid provider's status code
         if body["status"] != "0000":
+            # 5600: 거래 진행중인 내역이 존재하지 않습니다.
+            if body["status"] == "5600":
+                return []
             raise ReferenceError(f"[ERROR] STATUS CODE {body['status']} - {body}")
         return body["data"]
 

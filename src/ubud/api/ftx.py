@@ -68,6 +68,8 @@ class FtxApi(BaseApi):
     def _gen_api_sign(method, route, ts, apiSecret, **kwargs):
         method = method.upper()
         signature_payload = f"{ts}{method}/{route.strip('/')}"
+        if method == "GET" and kwargs:
+            signature_payload = "?".join([signature_payload, urlencode(kwargs)])
         if method == "POST":
             signature_payload += json.dumps(kwargs)
         signature = hmac.new(apiSecret.encode(), signature_payload.encode(), "sha256").hexdigest()

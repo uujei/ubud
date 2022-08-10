@@ -193,7 +193,8 @@ class BithumbWebsocket(BaseWebsocket):
                     messages += [msg]
 
                     # Orderbook 정리 - 임의의 음수 QUANTITY를 입력
-                    self.orderbooks[symbol][currency][orderType].update({PRICE: price, QUANTITY: -1.0})
+                    # [NOTE] ASK, BID Orderbook 모두 정리
+                    _ = [self.orderbooks[symbol][currency][o].update({PRICE: price, QUANTITY: -1.0}) for o in [ASK, BID]]
 
                     # logging
                     logger.debug(f"[WEBSOCKET] Parsed Message: {msg}")
