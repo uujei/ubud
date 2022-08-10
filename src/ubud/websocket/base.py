@@ -54,7 +54,7 @@ class Orderbook:
         if order[QUANTITY] < 0.0:
             if self.orderType == ASK:
                 self.orderbooks = {k: v for k, v in self.orderbooks if k > order[PRICE]}
-            if self.orderType == BID:
+            elif self.orderType == BID:
                 self.orderbooks = {k: v for k, v in self.orderbooks if k < order[PRICE]}
             else:
                 logger.warning(f"[WARNING] Check websocket.base.orderbook:update, unknown orderType {self.orderType}!")
