@@ -138,11 +138,7 @@ class UpbitPublicApi:
         return self.markets
 
     # get_markets: /market/all
-    async def get_markets(
-        self,
-        isDetails: bool = False,
-        interval: float = None,
-    ):
+    async def get_markets(self, isDetails: bool = False, interval: float = None):
         RATELIMIT = 10
         return await self.request(
             method="GET",
@@ -195,6 +191,20 @@ class UpbitPublicApi:
         payment_currency: str = "KRW",
         interval: float = None,
     ) -> list:
+        """
+        get_orderbook
+
+        [NOTE]
+         - Upbit는 Depth=15만 제공
+
+        Args:
+            order_currency (str, optional): [markets]. Defaults to "ALL".
+            payment_currency (str, optional): [markets]. Defaults to "KRW".
+            interval (float, optional): Defaults to None.
+
+        Returns:
+            dict:
+        """
         # ratelimit:ticker
         RATELIMIT = 10
         if order_currency == "ALL":
@@ -210,8 +220,8 @@ class UpbitPublicApi:
             ratelimit=RATELIMIT,
         )
 
-    # get_transaction
-    async def get_transaction(
+    # get_trades
+    async def get_trades(
         self,
         order_currency: str,
         payment_currency: str = "KRW",
@@ -219,7 +229,7 @@ class UpbitPublicApi:
         interval: float = None,
     ) -> list:
         """
-        get_transaction
+        get_trades
 
         [NOTE]
          - transaction은 Websocket 사용을 권장
@@ -256,6 +266,18 @@ class UpbitPrivateApi:
     ################################
     # PRIVATE API (INFO)
     ################################
+    #
+    async def get_account(
+        self,
+        order_currency: str,
+        payment_currency: str = "KRW",
+    ):
+        return await self.request(
+            method="GET",
+            prefix="/orders/chance",
+            market=f"{payment_currency}-{order_currency}",
+        )
+
     # get_balance: /accounts
     async def get_balance(self, interval: float = None) -> list:
         # ratelimit:default
@@ -460,16 +482,16 @@ class UpbitPrivateApi:
         *,
         order_currency: str,
         payment_currency: str = "KRW",
-        units: float = None,
         price: float = None,
+        units: float = None,
     ):
         market = f"{payment_currency}-{order_currency}"
         return await self.request(
             method="POST",
             prefix="/orders",
             market=market,
-            volume=units,
             price=price,
+            volume=units,
             side="ask",
             ord_type="limit",
         )
@@ -480,16 +502,16 @@ class UpbitPrivateApi:
         *,
         order_currency: str,
         payment_currency: str = "KRW",
-        units: float = None,
         price: float = None,
+        units: float = None,
     ):
         market = f"{payment_currency}-{order_currency}"
         return await self.request(
             method="POST",
             prefix="/orders",
             market=market,
-            volume=units,
             price=price,
+            volume=units,
             side="bid",
             ord_type="limit",
         )

@@ -151,29 +151,41 @@ class BithumbPublicApi:
         self,
         order_currency: str = "ALL",
         payment_currency: str = "KRW",
-        count: int = 30,
+        depth: int = 15,
         interval: float = None,
     ) -> dict:
+        """
+        get_orderbook
+        
+        Args:
+            order_currency (str, optional): Defaults to "ALL".
+            payment_currency (str, optional): Defaults to "KRW".
+            depth (int, optional): [count]. Defaults to 30.
+            interval (float, optional): Defaults to None.
+
+        Returns:
+            dict:
+        """
         if order_currency == "ALL":
-            logger.info(f"get_orderbook: max count is 5 for ALL_{payment_currency}")
-            count = max(count, 5)
+            logger.info(f"get_orderbook: max depth is 5 for ALL_{payment_currency}")
+            depth = max(depth, 5)
         return await self.request(
             method="GET",
             prefix="/public/orderbook",
             path=f"{order_currency}_{payment_currency}",
-            count=count,
+            count=depth,
             interval=interval,
         )
 
-    async def get_transaction(
+    async def get_trades(
         self,
         order_currency: str = "ALL",
         payment_currency: str = "KRW",
-        count: int = 20,
+        count: int = 30,
         interval: float = None,
     ) -> dict:
         """
-        get_transaction
+        get_trades
 
         [NOTE]
          - transaction은 Websocket 사용을 권장
@@ -189,7 +201,7 @@ class BithumbPublicApi:
         """
         return await self.request(
             method="GET",
-            prefix="/public/orderbook",
+            prefix="/public/transaction_history",
             path=f"{order_currency}_{payment_currency}",
             count=count,
             interval=interval,
@@ -208,14 +220,12 @@ class BithumbPrivateApi:
         self,
         order_currency: str,
         payment_currency: str = "KRW",
-        interval: float = None,
     ):
         return await self.request(
             method="POST",
             prefix="/info/account",
             order_currency=order_currency,
             payment_currency=payment_currency,
-            interval=interval,
         )
         
     # get_balance: /info/balance
@@ -353,8 +363,8 @@ class BithumbPrivateApi:
         *,
         order_currency: str,
         payment_currency: str = "KRW",
-        units: float = None,
         price: int = None,
+        units: float = None,
     ) -> dict:
         """
         [NOTE]
@@ -374,8 +384,8 @@ class BithumbPrivateApi:
             prefix="/trade/place",
             order_currency=order_currency,
             payment_currency=payment_currency,
-            units=units,
             price=price,
+            units=units,
             type="ask",
             interval=None,
         )
@@ -386,8 +396,8 @@ class BithumbPrivateApi:
         *,
         order_currency: str,
         payment_currency: str = "KRW",
-        units: float = None,
         price: int = None,
+        units: float = None,
     ) -> dict:
         """
         Args:

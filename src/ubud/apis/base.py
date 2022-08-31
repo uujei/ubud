@@ -114,6 +114,7 @@ class BaseApi(abc.ABC):
         async with session.request(method=method, **args) as resp:
             if not (200 <= resp.status <= 299):
                 body = await resp.json()
+                print(body)
                 raise self.ResponseException(status_code=resp.status, body=body)
             if handlers:
                 results = await asyncio.gather(*[handler(resp) for handler in handlers])
