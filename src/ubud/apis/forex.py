@@ -1,14 +1,16 @@
 import asyncio
-from datetime import datetime
 import json
 import logging
-from urllib.parse import urlencode, urljoin
-import redis.asyncio as redis
 import time
+from datetime import datetime
+from urllib.parse import urlencode, urljoin
+
 import aiohttp
+import redis.asyncio as redis
 from pydantic import BaseModel
 
 from ..const import KST
+from .base import BaseApi
 
 logger = logging.getLogger(__name__)
 
@@ -55,32 +57,24 @@ class ForexModel(BaseModel):
 
 
 ################################################################
-# Api
+# ForexApi
 ################################################################
-class ForexApi:
+class ForexApi(BaseApi):
 
     # Dunamu URL
-    baseUrl = "https://quotation-api-cdn.dunamu.com"
-    apiVersion = "v1"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36"
-    }
+    baseUrl = "https://quotation-api-cdn.dunamu.com/v1"
+    endpoints = dict()
+    payload_type = "data"
 
-    def __init__(
-        self,
-        codes: str = "FRX.KRWUSD",
-    ):
-        self.codes = codes
-        self.route = "forex/recent"
+    async def get_krwusd(self, interval=None):
+        return await self.request(
+            method="get",
+            prefix="/forex/recent",
+            interval=interval,
+            codes="FRX.KRWUSD",
+        )
 
-    async def request(self):
-        url = f"{self.baseUrl}/{self.apiVersion}/{self.route}"
-        query = f"codes={self.codes}"
-        url = "?".join([url, query])
-        async with aiohttp.ClientSession() as client:
-            async with client.request(method="get", url=url, headers=self.headers) as resp:
-                if resp.status not in [200, 201]:
-                    _text = await resp.text()
-                    raise ReferenceError(f"status code: {resp.status}, message: {_text}")
-                resp = await resp.json()
-                return resp
+    def generate_headers(self, method, endpoint, **kwargs):
+        return {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36"
+        }
