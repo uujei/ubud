@@ -23,6 +23,7 @@ REPLENISH = {
     "order": {"per_sec": 8, "per_min": 200},
     "default": {"per_sec": 30, "per_min": 900},
     "market": {"per_sec": 10, "per_min": 600},
+    "ticker": {"per_sec": 10, "per_min": 600},
     "status-wallet": {"per_sec": 10, "per_min": 600},  # 정확하지 않음
 }
 
@@ -96,4 +97,4 @@ class UpbitApi(BaseApi):
             logger.debug(f"[HTTP] Upbit Rate Limit: {rate_limit}")
             return rate_limit
         except KeyError as e:
-            logging.warn(f"NEW LIMIT HEADER GROUP FOUND {_group}")
+            logging.warn(f"NEW LIMIT HEADER GROUP FOUND {_group} - Remaining-Req: {headers['Remaining-Req']}")

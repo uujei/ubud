@@ -14,6 +14,9 @@ from .bithumb_endpoints import ENDPOINTS
 
 logger = logging.getLogger(__name__)
 
+################################
+# Exceptions
+################################
 class BithumbException(Exception):
     def __init__(self, status_code, detail):
         self.status_code = status_code
@@ -21,6 +24,29 @@ class BithumbException(Exception):
         
     def __str__(self):
         return f"status_code: {self.status_code}, detail: {self.detail}"
+    
+class BithumbResponseException(Exception):
+    critical_status_codes = [400, 401, 404]
+
+    def __init__(self, status_code, body):
+        # parse body
+        if isinstance(body, str):
+            error_code = "unknown"
+            message = body
+        else:
+            error_code = body.get("status")
+            message = body.get("message")
+
+        # props
+        self.status_code = status_code
+        self.error_code = error_code
+        self.message = message
+
+        # we'll stop the loop if critical
+        self.is_critical = self.status_code in self.critical_status_codes
+
+    def __str__(self):
+        return f"HTTP status [{self.status_code}] (critical={self.is_critical}), server sent error [{self.error_code}] {self.message}"
 
 ################################
 # Rate Limit Parser
@@ -36,6 +62,7 @@ class _BithumbApi(BaseApi):
     baseUrl = "https://api.bithumb.com"
     endpoints = ENDPOINTS
     payload_type = "data"
+    ResponseException = BithumbResponseException
 
     def generate_headers(self, method, endpoint, **kwargs):
         # no required headers for public endpoints
@@ -91,11 +118,26 @@ class _BithumbApi(BaseApi):
 # BithumbPublicApi
 ################################################################
 class BithumbPublicApi:
+    
+    # get_assets_status
+    async def get_assets_status(
+        self,
+        order_currency: str = "ALL",
+        interval: float = None,
+    ) -> dict:
+        return await self.request(
+            method="GET",
+            prefix="/public/assetsstatus",
+            path=f"{order_currency}",
+            interval=interval,
+        )
+        
+    # get_ticker: /public/ticker
     async def get_ticker(
         self,
         order_currency: str = "ALL",
         payment_currency: str = "KRW",
-        interval=None,
+        interval: float = None,
     ):
         return await self.request(
             method="GET",
@@ -104,13 +146,14 @@ class BithumbPublicApi:
             interval=interval,
         )
 
+    # get_orderbook: /public/orderbook
     async def get_orderbook(
         self,
         order_currency: str = "ALL",
         payment_currency: str = "KRW",
         count: int = 30,
         interval: float = None,
-    ):
+    ) -> dict:
         if order_currency == "ALL":
             logger.info(f"get_orderbook: max count is 5 for ALL_{payment_currency}")
             count = max(count, 5)
@@ -128,24 +171,27 @@ class BithumbPublicApi:
         payment_currency: str = "KRW",
         count: int = 20,
         interval: float = None,
-    ):
+    ) -> dict:
+        """
+        get_transaction
+
+        [NOTE]
+         - transaction은 Websocket 사용을 권장
+
+        Args:
+            order_currency (str, optional): 주문통화. Defaults to "ALL".
+            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            count (int, optional): 체결 개수. Defaults to 30.
+            interval (float, optional): Defaults to None.
+
+        Returns:
+            list
+        """
         return await self.request(
             method="GET",
             prefix="/public/orderbook",
             path=f"{order_currency}_{payment_currency}",
             count=count,
-            interval=interval,
-        )
-
-    async def get_assets_status(
-        self,
-        order_currency: str = "ALL",
-        interval: float = None,
-    ):
-        return await self.request(
-            method="GET",
-            prefix="/public/assetsstatus",
-            path=f"{order_currency}",
             interval=interval,
         )
         
@@ -270,7 +316,7 @@ class BithumbPrivateApi:
         )
         
     # get_transactions: /info/user_transactions
-    async def get_transactions(
+    async def get_transaction_history(
         self,
         *,
         order_currency: str,
@@ -301,6 +347,7 @@ class BithumbPrivateApi:
     # [NOTE] 
     #  - 실수 방지 위해 interval 제외! (self.request에서는 None으로 명시!)
     ################################
+    # ask
     async def ask(
         self,
         *,
@@ -333,6 +380,7 @@ class BithumbPrivateApi:
             interval=None,
         )
         
+    # bid
     async def bid(
         self,
         *,
@@ -468,7 +516,10 @@ class BithumbPrivateApi:
             interval=None,
         )
     
-    async def withdraw(
+    ################################
+    # PRIVATE API (DEPOSIT/WITHDRAW)
+    ################################
+    async def withdraw_coin(
         self,
         *,
         currency: str,

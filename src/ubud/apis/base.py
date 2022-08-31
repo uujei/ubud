@@ -4,6 +4,7 @@ import logging
 from typing import Callable, List
 
 import aiohttp
+import time
 import redis.asyncio as redis
 
 from ..const import KST
@@ -20,7 +21,15 @@ async def log_handler(response):
 class UbudApiResponseException(Exception):
     critical_status_codes = [400, 404]
 
-    def __init__(self, status_code, error_code=None, message=None):
+    def __init__(self, status_code, body):
+        # parse body
+        if isinstance(body, str):
+            error_code = "unknown"
+            message = body
+        else:
+            error_code = body.get("status")
+            message = body.get("message")
+
         # props
         self.status_code = status_code
         self.error_code = error_code
@@ -67,21 +76,33 @@ class BaseApi(abc.ABC):
         prefix: str,
         path: str = None,
         interval: float = None,
+        ratelimit: int = 10,
         **kwargs,
     ):
-        if interval:
-            handlers = self.stream_handlers
+        # drop none value parameters
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+        # set handlers
+        if interval is not None:
+            handlers = [self.ratelimit_handler, *self.stream_handlers]
+            # set shortest interval aviod ratelimit if interval is zero
+            if interval == 0:
+                interval = 1.0 / ratelimit
         else:
             handlers = [self.ratelimit_handler, self.return_handler]
+
+        # outer loop for re-connection, inner loop for periodic response
         while True:
             try:
                 async with aiohttp.ClientSession() as session:
                     while True:
+                        t0 = time.time()
                         args = self.generate_request_args(method, prefix, path, **kwargs)
                         response = await self._request(session, method=method, handlers=handlers, **args)
                         if interval is None:
                             return response
-                        await asyncio.sleep(interval)
+                        latency = time.time() - t0
+                        await asyncio.sleep(interval - latency)
             except self.ResponseException as ex:
                 if ex.is_critical:
                     raise ex
@@ -93,14 +114,7 @@ class BaseApi(abc.ABC):
         async with session.request(method=method, **args) as resp:
             if not (200 <= resp.status <= 299):
                 body = await resp.json()
-                if isinstance(body, str):
-                    error_code = "unknown"
-                    message = body
-                else:
-                    error_code = body.get("status")
-                    message = body.get("message")
-
-                raise self.ResponseException(status_code=resp.status, error_code=error_code, message=message)
+                raise self.ResponseException(status_code=resp.status, body=body)
             if handlers:
                 results = await asyncio.gather(*[handler(resp) for handler in handlers])
                 return results[-1]
@@ -114,7 +128,7 @@ class BaseApi(abc.ABC):
             "headers": self.generate_headers(method=method, endpoint=endpoint, **kwargs),
         }
         if method.upper() == "GET":
-            args.update({"params": {k: v for k, v in kwargs.items() if v is not None}}),
+            args.update({"params": kwargs}),
             return args
         args.update({self.payload_type: kwargs}),
         return args
