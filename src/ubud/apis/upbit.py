@@ -76,40 +76,26 @@ class _UpbitApi(BaseApi):
     payload_type = "data"
     ResponseException = UpbitResponseException
 
-    def generate_headers(self, method, endpoint, **kwargs):
-        api_key = self.apiKey
-        api_secret = self.apiSecret
-        nonce = str(uuid.uuid4())
-        return {
-            "Authorization": self.generate_api_sign(
-                endpoint=endpoint,
-                nonce=nonce,
-                apiKey=api_key,
-                apiSecret=api_secret,
-                **kwargs,
-            )
-        }
-
-    @staticmethod
-    def generate_api_sign(endpoint, nonce, apiKey, apiSecret, **kwargs):
-        payload = {"access_key": apiKey, "nonce": nonce}
+    def generate_headers(self, method, path_url, **kwargs):
+        if self.apiKey is None or self.apiSecret is None:
+            return {}
+        payload = {"access_key": self.apiKey, "nonce": str(uuid.uuid4())}
         if kwargs:
             m = hashlib.sha512()
             m.update(urlencode(kwargs).encode())
             query_hash = m.hexdigest()
             payload.update({"query_hash": query_hash, "query_hash_alg": "SHA512"})
-        return f"Bearer {jwt.encode(payload, apiSecret)}"
+        return {"Authorization": f"Bearer {jwt.encode(payload, self.apiSecret)}"}
 
     @staticmethod
-    async def return_handler(resp):
-        body = await resp.json()
-        return body
+    def validator(body):
+        return
 
     @staticmethod
-    async def ratelimit_handler(response):
+    def ratelimit_handler(headers):
         # get rate limit info.
-        _rate_limit = REMAINING_REQ_FORM.parse(response.headers["Remaining-Req"]).named
-        print(response.headers["Remaining-Req"])
+        _rate_limit = REMAINING_REQ_FORM.parse(headers["Remaining-Req"]).named
+        print(headers["Remaining-Req"])
         _group = _rate_limit["group"]
         try:
             rate_limit = {
@@ -121,7 +107,7 @@ class _UpbitApi(BaseApi):
             logger.debug(f"[HTTP] Upbit Rate Limit: {rate_limit}")
             return rate_limit
         except KeyError as ex:
-            logging.warn(f"새 RateLimit 그룹 발견! {_group} - Remaining-Req: {response.headers['Remaining-Req']}")
+            logging.warn(f"새 RateLimit 그룹 발견! {_group} - Remaining-Req: {headers['Remaining-Req']}")
 
 
 ################################################################
@@ -130,11 +116,11 @@ class _UpbitApi(BaseApi):
 class UpbitPublicApi:
     markets: list = None
 
-    async def _all_markets_for_given_payment_currency(self, payment_currency: str = None):
+    async def _all_markets_for_given_pc(self, pc: str = None):
         if self.markets is None:
             self.markets = [m["market"] for m in await self.get_markets()]
-        if payment_currency:
-            return ",".join([m for m in self.markets if m.startswith(f"{payment_currency}-")])
+        if pc:
+            return ",".join([m for m in self.markets if m.startswith(f"{pc}-")])
         return self.markets
 
     # get_markets: /market/all
@@ -165,16 +151,16 @@ class UpbitPublicApi:
     # get_ticker: /ticker
     async def get_ticker(
         self,
-        order_currency: str = "ALL",
-        payment_currency: str = "KRW",
+        oc: str = "ALL",
+        pc: str = "KRW",
         interval: float = None,
     ) -> list:
         # ratelimit:ticker
         RATELIMIT = 10
-        if order_currency == "ALL":
-            markets = await self._all_markets_for_given_payment_currency(payment_currency=payment_currency)
+        if oc == "ALL":
+            markets = await self._all_markets_for_given_pc(pc=pc)
         else:
-            markets = f"{payment_currency}-{order_currency}"
+            markets = f"{pc}-{oc}"
 
         return await self.request(
             method="GET",
@@ -187,8 +173,8 @@ class UpbitPublicApi:
     # get_orderbook: /orderbook
     async def get_orderbook(
         self,
-        order_currency: str = "ALL",
-        payment_currency: str = "KRW",
+        oc: str = "ALL",
+        pc: str = "KRW",
         interval: float = None,
     ) -> list:
         """
@@ -198,8 +184,8 @@ class UpbitPublicApi:
          - Upbit는 Depth=15만 제공
 
         Args:
-            order_currency (str, optional): [markets]. Defaults to "ALL".
-            payment_currency (str, optional): [markets]. Defaults to "KRW".
+            oc (str, optional): Order Currency, 주문통화. [markets]. Defaults to "ALL".
+            pc (str, optional): Payment Currency, 결제통화. [markets]. Defaults to "KRW".
             interval (float, optional): Defaults to None.
 
         Returns:
@@ -207,10 +193,10 @@ class UpbitPublicApi:
         """
         # ratelimit:ticker
         RATELIMIT = 10
-        if order_currency == "ALL":
-            markets = await self._all_markets_for_given_payment_currency(payment_currency=payment_currency)
+        if oc == "ALL":
+            markets = await self._all_markets_for_given_pc(pc=pc)
         else:
-            markets = f"{payment_currency}-{order_currency}"
+            markets = f"{pc}-{oc}"
 
         return await self.request(
             method="GET",
@@ -223,8 +209,8 @@ class UpbitPublicApi:
     # get_trades
     async def get_trades(
         self,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         count: int = 30,
         interval: float = None,
     ) -> list:
@@ -233,12 +219,12 @@ class UpbitPublicApi:
 
         [NOTE]
          - transaction은 Websocket 사용을 권장
-         - order_currency에 ALL 사용할 수 없음. (RateLimit 소진 이슈)
+         - oc에 ALL 사용할 수 없음. (RateLimit 소진 이슈)
          - BithumbApi와의 consistency를 위해 parameter에서 to, cursor, daysAgo 제외
 
         Args:
-            order_currency (str, optional): 주문통화. Defaults to "ALL".
-            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            oc (str, optional): 주문통화. Defaults to "ALL".
+            pc (str, optional): 결제통화. Defaults to "KRW".
             count (int, optional): 체결 개수. Defaults to 30.
             interval (float, optional): Defaults to None.
 
@@ -247,7 +233,7 @@ class UpbitPublicApi:
         """
         # ratelimit:crix-trades
         RATELIMIT = 10
-        market = f"{payment_currency}-{order_currency}"
+        market = f"{pc}-{oc}"
 
         return await self.request(
             method="GET",
@@ -269,13 +255,13 @@ class UpbitPrivateApi:
     #
     async def get_account(
         self,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
     ):
         return await self.request(
             method="GET",
             prefix="/orders/chance",
-            market=f"{payment_currency}-{order_currency}",
+            market=f"{pc}-{oc}",
         )
 
     # get_balance: /accounts
@@ -294,8 +280,8 @@ class UpbitPrivateApi:
         self,
         order_id: str = None,
         *,
-        order_currency: str = None,
-        payment_currency: str = "KRW",
+        oc: str = None,
+        pc: str = "KRW",
         state: str = "wait",
         count: int = 100,
         interval: float = None,
@@ -303,8 +289,8 @@ class UpbitPrivateApi:
         # ratelimit:default
         RATELIMIT = 15
 
-        if order_currency and payment_currency:
-            market = f"{payment_currency}-{order_currency}"
+        if oc and pc:
+            market = f"{pc}-{oc}"
         else:
             market = None
         return await self.request(
@@ -323,8 +309,8 @@ class UpbitPrivateApi:
         self,
         order_id: str,
         *,
-        order_currency: str = None,
-        payment_currency: str = None,
+        oc: str = None,
+        pc: str = None,
         interval: float = None,
     ):
         # ratelimit:default
@@ -342,16 +328,16 @@ class UpbitPrivateApi:
     async def get_transaction_history(
         self,
         *,
-        order_currency: str = None,
-        payment_currency: str = "KRW",
+        oc: str = None,
+        pc: str = "KRW",
         count: int = 100,
         interval: float = None,
     ):
         # ratelimit:default
         RATELIMIT = 15
 
-        if order_currency and payment_currency:
-            market = f"{payment_currency}-{order_currency}"
+        if oc and pc:
+            market = f"{pc}-{oc}"
         else:
             market = None
         return await self.request(
@@ -480,12 +466,12 @@ class UpbitPrivateApi:
     async def ask(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         price: float = None,
         units: float = None,
     ):
-        market = f"{payment_currency}-{order_currency}"
+        market = f"{pc}-{oc}"
         return await self.request(
             method="POST",
             prefix="/orders",
@@ -500,12 +486,12 @@ class UpbitPrivateApi:
     async def bid(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         price: float = None,
         units: float = None,
     ):
-        market = f"{payment_currency}-{order_currency}"
+        market = f"{pc}-{oc}"
         return await self.request(
             method="POST",
             prefix="/orders",
@@ -521,14 +507,14 @@ class UpbitPrivateApi:
         self,
         *,
         order_id: str,
-        order_currency: str = None,
-        payment_currency: str = None,
+        oc: str = None,
+        pc: str = None,
     ) -> dict:
         """
         Args:
             order_id (str): 주문번호 [uuid].
-            order_currency (str): 무시할 것. For API Consistency Only.
-            payment_currency (str, optional): 무시할 것. For API Consistency Only.
+            oc (str): 무시할 것. For API Consistency Only.
+            pc (str, optional): 무시할 것. For API Consistency Only.
 
         Returns:
             dict
@@ -546,14 +532,14 @@ class UpbitPrivateApi:
         self,
         *,
         order_id: str,
-        order_currency: str = None,
-        payment_currency: str = None,
+        oc: str = None,
+        pc: str = None,
     ) -> dict:
         """
         Args:
             order_id (str): 주문번호 [uuid].
-            order_currency (str): 무시할 것. For API Consistency Only.
-            payment_currency (str, optional): 무시할 것. For API Consistency Only.
+            oc (str): 무시할 것. For API Consistency Only.
+            pc (str, optional): 무시할 것. For API Consistency Only.
 
         Returns:
             dict
@@ -573,13 +559,13 @@ class UpbitPrivateApi:
     async def buy(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         units: float = None,
     ):
         TIMEOUT_SEC = 10.0
         CHECK_INTERVAL = 0.5
-        market = f"{payment_currency}-{order_currency}"
+        market = f"{pc}-{oc}"
 
         # 마지막 체결가 조회
         last_transaction = await self.request(
@@ -608,8 +594,8 @@ class UpbitPrivateApi:
         while time.time() - t0 < TIMEOUT_SEC:
             _orders = await self.get_orders(
                 order_id=order_id,
-                order_currency=order_currency,
-                payment_currency=payment_currency,
+                oc=oc,
+                pc=pc,
             )
             if len(_orders) == 0:
                 return order
@@ -622,11 +608,11 @@ class UpbitPrivateApi:
     async def sell(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         units: float = None,
     ):
-        market = f"{payment_currency}-{order_currency}"
+        market = f"{pc}-{oc}"
         return await self.request(
             method="POST",
             prefix="/orders",

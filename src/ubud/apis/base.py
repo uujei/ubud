@@ -55,12 +55,12 @@ class BaseApi(abc.ABC):
         self,
         apiKey: str = None,
         apiSecret: str = None,
-        stream_handlers: list = [log_handler],
+        stream_handler: Callable = log_handler,
     ):
         # props
         self.apiKey = apiKey
         self.apiSecret = apiSecret
-        self.stream_handlers = stream_handlers if isinstance(stream_handlers, list) else [stream_handlers]
+        self.stream_handler = stream_handler
 
         # ratelimit
         self._remains = None
@@ -75,21 +75,20 @@ class BaseApi(abc.ABC):
         method: str,
         prefix: str,
         path: str = None,
+        parser: Callable = None,
         interval: float = None,
         ratelimit: int = 10,
         **kwargs,
     ):
-        # drop none value parameters
+        # correct args
+        method = method.upper()
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
-        # set handlers
-        if interval is not None:
-            handlers = [self.ratelimit_handler, *self.stream_handlers]
-            # set shortest interval aviod ratelimit if interval is zero
-            if interval == 0:
-                interval = 1.0 / ratelimit
-        else:
-            handlers = [self.ratelimit_handler, self.return_handler]
+        # set interval and handlers
+        # set shortest allowed interval if interval is zero
+        if interval == 0:
+            interval = 1.0 / ratelimit
+        handler = self.stream_handler if interval else None
 
         # outer loop for re-connection, inner loop for periodic response
         while True:
@@ -98,7 +97,7 @@ class BaseApi(abc.ABC):
                     while True:
                         t0 = time.time()
                         args = self.generate_request_args(method, prefix, path, **kwargs)
-                        response = await self._request(session, method=method, handlers=handlers, **args)
+                        response = await self._request(session, method=method, parser=parser, handler=handler, **args)
                         if interval is None:
                             return response
                         latency = time.time() - t0
@@ -110,23 +109,31 @@ class BaseApi(abc.ABC):
             except Exception as ex:
                 raise ex
 
-    async def _request(self, session, method, handlers, **args):
+    async def _request(self, session, method, parser, handler=None, **args):
         async with session.request(method=method, **args) as resp:
+            # handle ratelimit
+            self.ratelimit_handler(resp.headers)
+            # check reponse
+            body = await resp.json()
             if not (200 <= resp.status <= 299):
-                body = await resp.json()
-                print(body)
                 raise self.ResponseException(status_code=resp.status, body=body)
-            if handlers:
-                results = await asyncio.gather(*[handler(resp) for handler in handlers])
-                return results[-1]
+            # validator
+            self.validator(body)
+            # parser
+            if parser:
+                body = parser(body, **args)
+            # handle
+            if handler:
+                handler(body)
+            return body
 
     def generate_request_args(self, method, prefix, path, **kwargs):
         url = self._join_url(self.baseUrl, prefix, path)
-        endpoint = self._get_endpoint(url)
+        path_url = self._get_path_url(url)
 
         args = {
             "url": url,
-            "headers": self.generate_headers(method=method, endpoint=endpoint, **kwargs),
+            "headers": self.generate_headers(method=method, path_url=path_url, **kwargs),
         }
         if method.upper() == "GET":
             args.update({"params": kwargs}),
@@ -135,21 +142,21 @@ class BaseApi(abc.ABC):
         return args
 
     @staticmethod
-    def generate_headers(self, method, endpoint, **kwargs):
-        return None
+    def generate_headers(self, method, path_url, **kwargs):
+        return NotImplementedError()
 
     @staticmethod
-    async def ratelimit_handler(resp):
-        return None
+    async def validator(body):
+        raise NotImplementedError()
 
     @staticmethod
-    async def return_handler(resp):
-        return await resp.json()
+    async def ratelimit_handler(headers):
+        return NotImplementedError()
 
     @staticmethod
     def _join_url(*args):
         return "/".join([arg.strip("/") for arg in args if arg])
 
     @staticmethod
-    def _get_endpoint(x):
+    def _get_path_url(x):
         return "/" + x.split("://", 1)[-1].split("/", 1)[-1]

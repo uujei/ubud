@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -53,12 +54,12 @@ class FtxResponseException(Exception):
 
 
 # helper
-def get_market_name(order_currency: str, payment_currency: str):
+def get_market_name(oc: str, pc: str):
     EXCHANGES = ["USD"]
-    if payment_currency in EXCHANGES:
-        return f"{order_currency}/{payment_currency}"
+    if pc in EXCHANGES:
+        return f"{oc}/{pc}"
     else:
-        return f"{order_currency}-{payment_currency}"
+        return f"{oc}-{pc}"
 
 
 ################################
@@ -82,41 +83,34 @@ class _FtxApi(BaseApi):
     payload_type = "json"
     ResponseException = FtxResponseException
 
-    def generate_headers(self, method, endpoint, **kwargs):
+    def generate_headers(self, method, path_url, **kwargs):
+        if self.apiKey is None or self.apiSecret is None:
+            return {}
         ts = int(time.time() * 1e3)
+        signature_payload = f"{ts}{method}/{path_url.strip('/')}"
+        if method in ["GET", "DELETE"]:
+            content_length = {"Content-Length": "0"}
+            if kwargs:
+                signature_payload = "?".join([signature_payload, urlencode(kwargs)])
+        if method in ["POST"]:
+            content_length = {}
+            signature_payload += json.dumps(kwargs)
         return {
             "FTX-KEY": self.apiKey,
-            "FTX-SIGN": self.generate_api_sign(
-                method=method,
-                endpoint=endpoint,
-                apiSecret=self.apiSecret,
-                ts=ts,
-                **kwargs,
-            ),
+            "FTX-SIGN": hmac.new(self.apiSecret.encode(), signature_payload.encode(), "sha256").hexdigest(),
             "FTX-TS": str(ts),
+            "Content-Type": "application/json",
+            "Accepts": "application/json",
+            **content_length,
         }
 
     @staticmethod
-    def generate_api_sign(method, endpoint, ts, apiSecret, **kwargs):
-        method = method.upper()
-        signature_payload = f"{ts}{method}/{endpoint.strip('/')}"
-        if method in ["GET", "DELETE"] and kwargs:
-            signature_payload = "?".join([signature_payload, urlencode(kwargs)])
-        if method == "POST":
-            signature_payload += json.dumps(kwargs)
-        signature = hmac.new(apiSecret.encode(), signature_payload.encode(), "sha256").hexdigest()
-
-        return signature
-
-    @staticmethod
-    async def return_handler(resp):
-        body = await resp.json()
+    def validator(body):
         if not body["success"]:
             raise FtxException(status_code=body["status"], detail=body)
-        return body["result"]
 
     @staticmethod
-    async def ratelimit_handler(response):
+    def ratelimit_handler(headers):
         """
         [NOTE] 아직 작성되지 않음.
         """
@@ -127,7 +121,7 @@ class _FtxApi(BaseApi):
                 "per_min_remaining": 5,
                 "per_min_replenish": 5,
             }
-            logger.debug(f"[HTTP] FTX Rate Limit: {response.headers}")
+            logger.debug(f"[HTTP] FTX Rate Limit: {headers}")
         except KeyError as e:
             logging.warn(e)
 
@@ -138,6 +132,15 @@ class _FtxApi(BaseApi):
 # FtxPublicApi
 ################################################################
 class FtxPublicApi:
+    markets: list = None
+
+    # [NOTE] currencies, not currency!
+    async def _all_markets_for_given_pc(self, pc: list = None):
+        if self.markets is None:
+            self.markets = await self.get_markets()
+        if pc:
+            return [m["name"] for m in self.markets if any([m.endswith(p) for p in pc])]
+        return self.markets
 
     # get_markets
     async def get_markets(self, interval: float = None):
@@ -147,8 +150,8 @@ class FtxPublicApi:
             interval=interval,
         )
 
-    async def get_market(self, order_currency: str, payment_currency: str = "USD", interval: float = None):
-        market_name = get_market_name(order_currency=order_currency, payment_currency=payment_currency)
+    async def get_market(self, oc: str, pc: str = "USD", interval: float = None):
+        market_name = get_market_name(oc=oc, pc=pc)
         return await self.request(
             method="GET",
             prefix="/markets",
@@ -158,14 +161,14 @@ class FtxPublicApi:
 
     async def get_ticker(
         self,
-        order_currency: str,
-        payment_currency: str = "USD",
+        oc: str,
+        pc: str = "USD",
         resolution: int = 86400,
         start_time: int = None,
         end_time: int = None,
         interval: float = None,
     ) -> list:
-        market_name = get_market_name(order_currency=order_currency, payment_currency=payment_currency)
+        market_name = get_market_name(oc=oc, pc=pc)
         return await self.request(
             method="GET",
             prefix="/markets",
@@ -176,18 +179,38 @@ class FtxPublicApi:
             interval=interval,
         )
 
+    # get_orderbook
     async def get_orderbook(
         self,
-        order_currency: str,
-        payment_currency: str = "USD",
+        oc: str,
+        pc: str = "USD",
         depth: str = 15,
         interval: float = None,
     ) -> list:
-        market_name = get_market_name(order_currency=order_currency, payment_currency=payment_currency)
+        if oc == "ALL":
+            markets = await self._all_markets_for_given_pc(pc)
+        else:
+            if isinstance(oc, str):
+                oc = [o.strip() for o in oc.split(",")]
+            if isinstance(pc, str):
+                pc = [p.strip() for p in pc.split(",")]
+                markets = [get_market_name(oc=o, pc=p) for o in oc for p in pc]
+        return await asyncio.gather(
+            *[self._get_orderbook(market=market, depth=depth, interval=interval) for market in markets]
+        )
+
+    # _get_orderbook
+    # [NOTE] FTX는 1개 currency에 대한 orderbook만을 제공 - Async 사용
+    async def _get_orderbook(
+        self,
+        market: str,
+        depth: str = 15,
+        interval: float = None,
+    ) -> list:
         return await self.request(
             method="GET",
             prefix="/markets",
-            path=f"{market_name}/orderbook",
+            path=f"{market}/orderbook",
             depth=depth,
             interval=interval,
         )
@@ -195,8 +218,8 @@ class FtxPublicApi:
     # get_trades
     async def get_trades(
         self,
-        order_currency: str,
-        payment_currency: str = "USD",
+        oc: str,
+        pc: str = "USD",
         start_time: int = None,
         end_time: int = None,
         interval: float = None,
@@ -206,19 +229,19 @@ class FtxPublicApi:
 
         [NOTE]
          - transaction은 Websocket 사용을 권장
-         - order_currency에 ALL 사용할 수 없음. (RateLimit 소진 이슈)
+         - oc에 ALL 사용할 수 없음. (RateLimit 소진 이슈)
          - FTX는 count가 아닌 start_time, end_time을 받음
 
         Args:
-            order_currency (str, optional): 주문통화. Defaults to "ALL".
-            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            oc (str, optional): 주문통화. Defaults to "ALL".
+            pc (str, optional): 결제통화. Defaults to "KRW".
             count (int, optional): 체결 개수. Defaults to 30.
             interval (float, optional): Defaults to None.
 
         Returns:
             list
         """
-        market_name = get_market_name(order_currency=order_currency, payment_currency=payment_currency)
+        market_name = get_market_name(oc=oc, pc=pc)
         return await self.request(
             method="GET",
             prefix="/markets",
@@ -258,14 +281,14 @@ class FtxPrivateApi:
     # get_orders: "get open orders"
     async def get_orders(
         self,
-        order_currency: str = None,
-        payment_currency: str = "USD",
+        oc: str = None,
+        pc: str = "USD",
         interval: float = None,
     ):
-        if order_currency and payment_currency:
+        if oc and pc:
             market = get_market_name(
-                order_currency=order_currency,
-                payment_currency=payment_currency,
+                oc=oc,
+                pc=pc,
             )
         else:
             market = None
@@ -281,8 +304,8 @@ class FtxPrivateApi:
         self,
         order_id: int,
         *,
-        order_currency: str = None,
-        payment_currency: str = None,
+        oc: str = None,
+        pc: str = None,
         interval: float = None,
     ):
         return await self.request(
@@ -306,12 +329,12 @@ class FtxPrivateApi:
     async def ask(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "USD",
+        oc: str,
+        pc: str = "USD",
         price: float = None,
         units: float = None,
     ):
-        market_name = get_market_name(order_currency=order_currency, payment_currency=payment_currency)
+        market_name = get_market_name(oc=oc, pc=pc)
         return await self.request(
             method="POST",
             prefix="/orders",
@@ -326,12 +349,12 @@ class FtxPrivateApi:
     async def bid(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "USD",
+        oc: str,
+        pc: str = "USD",
         price: float = None,
         units: float = None,
     ):
-        market_name = get_market_name(order_currency=order_currency, payment_currency=payment_currency)
+        market_name = get_market_name(oc=oc, pc=pc)
         return await self.request(
             method="POST",
             prefix="/orders",
@@ -347,14 +370,14 @@ class FtxPrivateApi:
         self,
         *,
         order_id: int,
-        order_currency: str = None,
-        payment_currency: str = None,
+        oc: str = None,
+        pc: str = None,
     ) -> dict:
         """
         Args:
             order_id (str): 주문번호.
-            order_currency (str): 무시할 것. For API Consistency Only.
-            payment_currency (str, optional): 무시할 것. For API Consistency Only.
+            oc (str): 무시할 것. For API Consistency Only.
+            pc (str, optional): 무시할 것. For API Consistency Only.
 
         Returns:
             dict
@@ -372,14 +395,14 @@ class FtxPrivateApi:
         self,
         *,
         order_id: int,
-        order_currency: str = None,
-        payment_currency: str = None,
+        oc: str = None,
+        pc: str = None,
     ) -> dict:
         """
         Args:
             order_id (str): 주문번호.
-            order_currency (str): 무시할 것. For API Consistency Only.
-            payment_currency (str, optional): 무시할 것. For API Consistency Only.
+            oc (str): 무시할 것. For API Consistency Only.
+            pc (str, optional): 무시할 것. For API Consistency Only.
 
         Returns:
             dict

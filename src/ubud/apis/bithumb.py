@@ -64,54 +64,39 @@ class _BithumbApi(BaseApi):
     payload_type = "data"
     ResponseException = BithumbResponseException
 
-    def generate_headers(self, method, endpoint, **kwargs):
-        # no required headers for public endpoints
-        if endpoint.strip("/").startswith("public"):
-            return
-
-        # for non-public endpoints
+    def generate_headers(self, method, path_url, **kwargs):
+        if self.apiKey is None or self.apiSecret is None:
+            return {}
         ts = str(int(time.time() * 1000))
+        q = chr(0).join([path_url, urlencode(kwargs), ts])
+        h = hmac.new(self.apiSecret.encode("utf-8"), q.encode("utf-8"), hashlib.sha512)
         return {
             "Api-Key": self.apiKey,
-            "Api-Sign": self.generate_api_sign(
-                endpoint=endpoint,
-                ts=ts,
-                apiSecret=self.apiSecret,
-                **kwargs,
-            ),
+            "Api-Sign": base64.b64encode(h.hexdigest().encode("utf-8")).decode(),
             "Api-Nonce": ts,
         }
-
+        
     @staticmethod
-    def generate_api_sign(endpoint, ts, apiSecret, **kwargs):
-        q = chr(0).join([endpoint, urlencode(kwargs), ts])
-        h = hmac.new(apiSecret.encode("utf-8"), q.encode("utf-8"), hashlib.sha512)
-        return base64.b64encode(h.hexdigest().encode("utf-8")).decode()
-
-    @staticmethod
-    async def return_handler(resp):
-        body = await resp.json()
-        # parse and valid provider's status code
+    def validator(body):
         # [NOTE]
         #  - 5600: 거래 진행중인 내역이 존재하지 않습니다.
         if body["status"] not in ["0000", "5600"]:
             raise BithumbException(status_code=body["status"], detail=body)
-        return body
 
     @staticmethod
-    async def ratelimit_handler(response):
+    def ratelimit_handler(headers):
         # get rate limit info.
         try:
             rate_limit = {
-                "per_sec_remaining": int(response.headers["X-RateLimit-Remaining"]),
-                "per_sec_replenish": int(response.headers["X-RateLimit-Replenish-Rate"]),
+                "per_sec_remaining": int(headers["X-RateLimit-Remaining"]),
+                "per_sec_replenish": int(headers["X-RateLimit-Replenish-Rate"]),
                 "per_min_remaining": None,
                 "per_min_replenish": None,
             }
             logger.debug(f"[API] Bithumb Rate Limit: {rate_limit}")
             return rate_limit
         except Exception as ex:
-            logger.warning(f"[API] Bithumb Update rate_limit FALIED - {ex}, headers: {response.headers}")
+            logger.warning(f"[API] Bithumb Update rate_limit FALIED - {ex}, headers: {headers}")
 
 
 ################################################################
@@ -122,35 +107,35 @@ class BithumbPublicApi:
     # get_assets_status
     async def get_assets_status(
         self,
-        order_currency: str = "ALL",
+        oc: str = "ALL",
         interval: float = None,
     ) -> dict:
         return await self.request(
             method="GET",
             prefix="/public/assetsstatus",
-            path=f"{order_currency}",
+            path=f"{oc}",
             interval=interval,
         )
         
     # get_ticker: /public/ticker
     async def get_ticker(
         self,
-        order_currency: str = "ALL",
-        payment_currency: str = "KRW",
+        oc: str = "ALL",
+        pc: str = "KRW",
         interval: float = None,
     ):
         return await self.request(
             method="GET",
             prefix="/public/ticker",
-            path=f"{order_currency}_{payment_currency}",
+            path=f"{oc}_{pc}",
             interval=interval,
         )
 
     # get_orderbook: /public/orderbook
     async def get_orderbook(
         self,
-        order_currency: str = "ALL",
-        payment_currency: str = "KRW",
+        oc: str = "ALL",
+        pc: str = "KRW",
         depth: int = 15,
         interval: float = None,
     ) -> dict:
@@ -158,29 +143,29 @@ class BithumbPublicApi:
         get_orderbook
         
         Args:
-            order_currency (str, optional): Defaults to "ALL".
-            payment_currency (str, optional): Defaults to "KRW".
+            oc (str, optional): Defaults to "ALL".
+            pc (str, optional): Defaults to "KRW".
             depth (int, optional): [count]. Defaults to 30.
             interval (float, optional): Defaults to None.
 
         Returns:
             dict:
         """
-        if order_currency == "ALL":
-            logger.info(f"get_orderbook: max depth is 5 for ALL_{payment_currency}")
+        if oc == "ALL":
+            logger.info(f"get_orderbook: max depth is 5 for ALL_{pc}")
             depth = max(depth, 5)
         return await self.request(
             method="GET",
             prefix="/public/orderbook",
-            path=f"{order_currency}_{payment_currency}",
+            path=f"{oc}_{pc}",
             count=depth,
             interval=interval,
         )
 
     async def get_trades(
         self,
-        order_currency: str = "ALL",
-        payment_currency: str = "KRW",
+        oc: str = "ALL",
+        pc: str = "KRW",
         count: int = 30,
         interval: float = None,
     ) -> dict:
@@ -191,8 +176,8 @@ class BithumbPublicApi:
          - transaction은 Websocket 사용을 권장
 
         Args:
-            order_currency (str, optional): 주문통화. Defaults to "ALL".
-            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            oc (str, optional): 주문통화. Defaults to "ALL".
+            pc (str, optional): 결제통화. Defaults to "KRW".
             count (int, optional): 체결 개수. Defaults to 30.
             interval (float, optional): Defaults to None.
 
@@ -202,7 +187,7 @@ class BithumbPublicApi:
         return await self.request(
             method="GET",
             prefix="/public/transaction_history",
-            path=f"{order_currency}_{payment_currency}",
+            path=f"{oc}_{pc}",
             count=count,
             interval=interval,
         )
@@ -218,14 +203,14 @@ class BithumbPrivateApi:
     # get_account: /info/account
     async def get_account(
         self,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
     ):
         return await self.request(
             method="POST",
             prefix="/info/account",
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
         )
         
     # get_balance: /info/balance
@@ -257,15 +242,15 @@ class BithumbPrivateApi:
     # get_user_ticker: /info/ticker
     async def get_user_ticker(
         self,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         interval: float = None,
     ):
         return await self.request(
             method="POST",
             prefix="/info/ticker",
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
             interval=interval,
         )
     
@@ -273,8 +258,8 @@ class BithumbPrivateApi:
     async def get_orders(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         count: int = 100,
         after: int = None,
         interval: float = None,
@@ -287,8 +272,8 @@ class BithumbPrivateApi:
          - 상세 주문내역은 다른 get_info_order_detail 사용.
 
         Args:
-            order_currency (str): 주문통화.
-            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            oc (str): 주문통화.
+            pc (str, optional): 결제통화. Defaults to "KRW".
             count (int, optional): Defaults to 100.
             after (int, optional): Defaults to None.
             interval (float, optional): Defaults to None.
@@ -300,8 +285,8 @@ class BithumbPrivateApi:
         return await self.request(
             method="POST",
             prefix="/info/orders",
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
             count=count,
             after=after,            
             interval=interval,
@@ -312,16 +297,16 @@ class BithumbPrivateApi:
         self,
         order_id: str,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         interval: float = None,
     ):
         return await self.request(
             method="POST",
             prefix="/info/order_detail",
             order_id=order_id,
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
             interval=interval,
         )
         
@@ -329,8 +314,8 @@ class BithumbPrivateApi:
     async def get_transaction_history(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         offset: int = 0,
         count: int = 20,
         searchGb: int = 0,
@@ -339,8 +324,8 @@ class BithumbPrivateApi:
         return await self.request(
             method="POST",
             prefix="/info/user_transactions",
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
             offset=offset,
             count=count,
             searchGb=searchGb,
@@ -361,8 +346,8 @@ class BithumbPrivateApi:
     async def ask(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         price: int = None,
         units: float = None,
     ) -> dict:
@@ -370,8 +355,8 @@ class BithumbPrivateApi:
         [NOTE]
          - 시장가보다 높게 매수 주문 넣을 경우 시장가로 거래되는 것으로 보임.
         Args:
-            order_currency (str): 주문통화.
-            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            oc (str): 주문통화.
+            pc (str, optional): 결제통화. Defaults to "KRW".
             units (float, optional): 주문수량 (최대 50억원). Defaults to None.
             price (int, optional): 거래가. Defaults to None.
             type (str, optional): 매수 bid, 매도 ask. Defaults to None.
@@ -382,8 +367,8 @@ class BithumbPrivateApi:
         return await self.request(
             method="POST",
             prefix="/trade/place",
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
             price=price,
             units=units,
             type="ask",
@@ -394,15 +379,15 @@ class BithumbPrivateApi:
     async def bid(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         price: int = None,
         units: float = None,
     ) -> dict:
         """
         Args:
-            order_currency (str): 주문통화.
-            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            oc (str): 주문통화.
+            pc (str, optional): 결제통화. Defaults to "KRW".
             units (float, optional): 주문수량 (최대 50억원). Defaults to None.
             price (int, optional): 거래가. Defaults to None.
 
@@ -412,8 +397,8 @@ class BithumbPrivateApi:
         return await self.request(
             method="POST",
             prefix="/trade/place",
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
             units=units,
             price=price,
             type="bid",
@@ -424,16 +409,16 @@ class BithumbPrivateApi:
         self,
         *,
         order_id: str,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
     ) -> dict:
         """
         [NOTE]
          - 시장가보다 높게 매수 주문 넣을 경우 시장가로 거래되는 것으로 보임.
         Args:
             order_id (str): 주문번호.
-            order_currency (str): 주문통화.
-            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            oc (str): 주문통화.
+            pc (str, optional): 결제통화. Defaults to "KRW".
 
         Returns:
             dict
@@ -443,8 +428,8 @@ class BithumbPrivateApi:
             method="POST",
             prefix="/trade/cancel",
             order_id=order_id,
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
             interval=None,
         )
         
@@ -452,16 +437,16 @@ class BithumbPrivateApi:
         self,
         *,
         order_id: str,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
     ) -> dict:
         """
         [NOTE]
          - 시장가보다 높게 매수 주문 넣을 경우 시장가로 거래되는 것으로 보임.
         Args:
             order_id (str): 주문번호.
-            order_currency (str): 주문통화.
-            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            oc (str): 주문통화.
+            pc (str, optional): 결제통화. Defaults to "KRW".
 
         Returns:
             dict
@@ -471,22 +456,22 @@ class BithumbPrivateApi:
             method="POST",
             prefix="/trade/cancel",
             order_id=order_id,
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
             interval=None,
         )
         
     async def buy(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         units: float = None,
     ) -> dict:
         """
         Args:
-            order_currency (str): 주문통화.
-            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            oc (str): 주문통화.
+            pc (str, optional): 결제통화. Defaults to "KRW".
             units (float, optional): 주문수량 (최대 50억원). Defaults to None.
 
         Returns:
@@ -495,8 +480,8 @@ class BithumbPrivateApi:
         return await self.request(
             method="POST",
             prefix="/trade/market_buy",
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
             units=units,
             interval=None,
         )
@@ -504,14 +489,14 @@ class BithumbPrivateApi:
     async def sell(
         self,
         *,
-        order_currency: str,
-        payment_currency: str = "KRW",
+        oc: str,
+        pc: str = "KRW",
         units: float = None,
     ) -> dict:
         """
         Args:
-            order_currency (str): 주문통화.
-            payment_currency (str, optional): 결제통화. Defaults to "KRW".
+            oc (str): 주문통화.
+            pc (str, optional): 결제통화. Defaults to "KRW".
             units (float, optional): 주문수량 (최대 50억원). Defaults to None.
 
         Returns:
@@ -520,8 +505,8 @@ class BithumbPrivateApi:
         return await self.request(
             method="POST",
             prefix="/trade/market_sell",
-            order_currency=order_currency,
-            payment_currency=payment_currency,
+            oc=oc,
+            pc=pc,
             units=units,
             interval=None,
         )
